@@ -25,13 +25,15 @@ jobs:
           java-version: "17"
 
       - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.7"
 
-      - run: ./gradlew test
+      - run: gradle test
 
       - name: Read package version
         id: ver
         run: |
-          VER=$(./gradlew -q properties | awk '/^version:/ {print $2}')
+          VER=$(gradle -q properties | awk '/^version:/ {print $2}')
           echo "version=$VER" >> "$GITHUB_OUTPUT"
 
       - name: Check if version already on Maven Central
@@ -52,4 +54,9 @@ jobs:
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_PRIVATE_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
-        run: ./gradlew publishAllPublicationsToCentralPortalRepository
+        run: |
+          if [ -z "$ORG_GRADLE_PROJECT_signingKey" ] || [ -z "$CENTRAL_USERNAME" ]; then
+            echo "::warning::Maven Central credentials not configured — skipping publish. Required secrets: GPG_PRIVATE_KEY, GPG_PASSPHRASE, CENTRAL_USERNAME, CENTRAL_PASSWORD."
+            exit 0
+          fi
+          gradle publishAllPublicationsToCentralPortalRepository
