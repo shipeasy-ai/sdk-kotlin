@@ -22,10 +22,19 @@ import java.util.logging.Logger
 class Client(
     private val apiKey: String,
     baseUrl: String? = null,
+    env: String = "prod",
+    disableTelemetry: Boolean = false,
+    telemetryUrl: String? = null,
 ) : AutoCloseable {
     private val log = Logger.getLogger("shipeasy")
     private val baseUrl: String = (baseUrl ?: "https://edge.shipeasy.dev").trimEnd('/')
     private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
+
+    // Per-evaluation usage telemetry. ON by default; pass disableTelemetry = true
+    // to opt out. See Telemetry.kt.
+    private val telemetry = Telemetry(
+        telemetryUrl ?: "https://t.shipeasy.ai", apiKey, "server", env, disableTelemetry, http,
+    )
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -58,18 +67,21 @@ class Client(
 
     @Suppress("UNCHECKED_CAST")
     fun getFlag(name: String, user: Map<String, Any?>): Boolean {
+        telemetry.emit("gate", name)
         val gates = flagsBlob?.get("gates") as? Map<String, Any?> ?: return false
         return Eval.evalGate(gates[name] as? Map<String, Any?>, user)
     }
 
     @Suppress("UNCHECKED_CAST")
     fun getConfig(name: String): Any? {
+        telemetry.emit("config", name)
         val configs = flagsBlob?.get("configs") as? Map<String, Any?> ?: return null
         return (configs[name] as? Map<String, Any?>)?.get("value")
     }
 
     @Suppress("UNCHECKED_CAST")
     fun getExperiment(name: String, user: Map<String, Any?>, defaultParams: Any?): ExperimentResult {
+        telemetry.emit("experiment", name)
         val flags = flagsBlob
         val exps = expsBlob
         val exp = (exps?.get("experiments") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
