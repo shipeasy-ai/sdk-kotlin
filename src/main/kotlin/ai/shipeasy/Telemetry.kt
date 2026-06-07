@@ -38,12 +38,7 @@ internal class Telemetry(
 
     /** Production constructor: the sender does a fire-and-forget HTTP GET. */
     constructor(endpoint: String, sdkKey: String, side: String, env: String, disabled: Boolean, http: HttpClient) :
-        this(endpoint, sdkKey, side, env, disabled, { url ->
-            runCatching {
-                val req = HttpRequest.newBuilder(URI.create(url)).GET().build()
-                http.sendAsync(req, HttpResponse.BodyHandlers.discarding())
-            }
-        })
+        this(endpoint, sdkKey, side, env, disabled, httpSender(http))
 
     /** Best-effort usage beacon for one evaluation. Never blocks, never throws. */
     fun emit(feature: String, resource: String) {
@@ -65,4 +60,13 @@ internal class Telemetry(
         MessageDigest.getInstance("SHA-256")
             .digest(input.toByteArray(StandardCharsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+}
+
+// Default sender: fire-and-forget HTTP GET. Top-level so the secondary
+// constructor can reference it in its delegation without touching instance state.
+private fun httpSender(http: HttpClient): (String) -> Unit = { url ->
+    runCatching {
+        val req = HttpRequest.newBuilder(URI.create(url)).GET().build()
+        http.sendAsync(req, HttpResponse.BodyHandlers.discarding())
+    }
 }
