@@ -50,13 +50,14 @@ jobs:
       - name: Publish to Maven Central
         if: steps.check.outputs.skip != '1'
         env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.GPG_PRIVATE_KEY }}
-          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.GPG_PASSPHRASE }}
+          # The vanniktech maven-publish plugin reads these property names.
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          if [ -z "$ORG_GRADLE_PROJECT_signingKey" ] || [ -z "$CENTRAL_USERNAME" ]; then
+          if [ -z "$ORG_GRADLE_PROJECT_signingInMemoryKey" ] || [ -z "$ORG_GRADLE_PROJECT_mavenCentralUsername" ]; then
             echo "::warning::Maven Central credentials not configured — skipping publish. Required secrets: GPG_PRIVATE_KEY, GPG_PASSPHRASE, CENTRAL_USERNAME, CENTRAL_PASSWORD."
             exit 0
           fi
-          gradle publishAllPublicationsToCentralPortalRepository
+          gradle publishAndReleaseToMavenCentral --no-configuration-cache

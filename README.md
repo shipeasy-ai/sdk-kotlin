@@ -3,7 +3,7 @@
 Server SDK for [Shipeasy](https://shipeasy.dev). JVM/Android-compatible.
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy:0.1.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.3.0")
 ```
 
 ```kotlin
