@@ -69,7 +69,19 @@ class Client(
     fun getFlag(name: String, user: Map<String, Any?>): Boolean {
         telemetry.emit("gate", name)
         val gates = flagsBlob?.get("gates") as? Map<String, Any?> ?: return false
-        return Eval.evalGate(gates[name] as? Map<String, Any?>, user)
+        return Eval.evalGate(gates[name] as? Map<String, Any?>, withAnonId(user))
+    }
+
+    /**
+     * Default `anonymous_id` to the request's `__se_anon_id` (resolved by
+     * [AnonIdFilter]) when the caller passed no explicit unit. A caller-supplied
+     * `user_id`/`anonymous_id` always wins; a no-op when no filter ran.
+     */
+    private fun withAnonId(user: Map<String, Any?>): Map<String, Any?> {
+        val hasUnit = !user["user_id"]?.toString().isNullOrEmpty() ||
+            !user["anonymous_id"]?.toString().isNullOrEmpty()
+        val anon = AnonId.current()
+        return if (!hasUnit && anon != null) user + ("anonymous_id" to anon) else user
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -85,7 +97,7 @@ class Client(
         val flags = flagsBlob
         val exps = expsBlob
         val exp = (exps?.get("experiments") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
-        val r = Eval.evalExperiment(exp, flags, exps, user)
+        val r = Eval.evalExperiment(exp, flags, exps, withAnonId(user))
         return if (r.params == null) r.copy(params = defaultParams) else r
     }
 

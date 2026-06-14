@@ -52,9 +52,14 @@ internal object Eval {
         if (enabled(gate["killswitch"])) return false
         if (!enabled(gate["enabled"])) return false
         (gate["rules"] as? List<Map<String, Any?>>)?.forEach { if (!matchRule(it, user)) return false }
-        val uid = userId(user) ?: return false
-        val salt = (gate["salt"] as? String) ?: ""
         val rolloutPct = (gate["rolloutPct"] as? Number)?.toInt() ?: 0
+        // No unit id (an unidentified request before any anon id is minted): a
+        // fully-rolled gate is on for everyone, so it can be answered without
+        // bucketing; a fractional rollout needs a stable unit, so deny until one
+        // exists. Rules above still apply, so targeting wins.
+        // See experiment-platform/18-identity-bucketing.md.
+        val uid = userId(user) ?: return rolloutPct >= 10000
+        val salt = (gate["salt"] as? String) ?: ""
         return Murmur3.bucket("$salt:$uid", 10000) < rolloutPct
     }
 
