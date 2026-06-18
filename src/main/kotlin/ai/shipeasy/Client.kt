@@ -15,10 +15,41 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.logging.Logger
+
+/** Result of [Client.getFlagDetail]: the gate value plus the reason for it. */
+data class FlagDetail(val value: Boolean, val reason: String)
+
+/**
+ * Stable reason codes returned in [FlagDetail.reason] (LaunchDarkly
+ * variationDetail parity). String constants so the value is forward-compatible
+ * if new reasons are added.
+ */
+object Reason {
+    /** Client not initialized yet — no rules blob loaded. */
+    const val CLIENT_NOT_READY = "CLIENT_NOT_READY"
+
+    /** The gate name isn't present in the loaded blob. */
+    const val FLAG_NOT_FOUND = "FLAG_NOT_FOUND"
+
+    /** Gate present but disabled or killed (enabled=false / killswitch=true). */
+    const val OFF = "OFF"
+
+    /** A local override supplied the value (telemetry skipped). */
+    const val OVERRIDE = "OVERRIDE"
+
+    /** The gate evaluated true (rules + rollout passed). */
+    const val RULE_MATCH = "RULE_MATCH"
+
+    /** The gate evaluated false (rules or rollout did not pass). */
+    const val DEFAULT = "DEFAULT"
+}
 
 class Client(
     private val apiKey: String,
@@ -59,6 +90,12 @@ class Client(
     @Volatile private var initialized = false
     private var pollJob: Job? = null
 
+    // Change listeners. Fire after a background-poll fetch returns NEW data
+    // (200, not 304) — never on the initial init() fetch, never in localMode.
+    // CopyOnWriteArrayList so iteration during notify is safe under concurrent
+    // (un)subscription.
+    private val changeListeners = CopyOnWriteArrayList<() -> Unit>()
+
     suspend fun init() {
         if (localMode) return
         fetchAll()
@@ -66,7 +103,12 @@ class Client(
         pollJob = scope.launch {
             while (isActive) {
                 delay(pollIntervalSec * 1000L)
-                runCatching { fetchAll() }.onFailure { log.warning("poll failed: ${it.message}") }
+                runCatching {
+                    // Only a background poll that brought NEW data (200, not 304)
+                    // counts as a change — the initial init() fetch above never
+                    // notifies, and 304s leave the blobs untouched.
+                    if (fetchAll()) notifyChange()
+                }.onFailure { log.warning("poll failed: ${it.message}") }
             }
         }
     }
@@ -104,12 +146,52 @@ class Client(
         experimentOverrides.clear()
     }
 
+    /**
+     * Evaluate a gate and report WHY (value + reason). The reason is computed
+     * entirely at this boundary — the canonical eval ([Eval.evalGate]) is
+     * untouched. A local override short-circuits BEFORE telemetry, exactly like
+     * [getFlag]'s override path; otherwise exactly one "gate" beacon is emitted.
+     */
     @Suppress("UNCHECKED_CAST")
-    fun getFlag(name: String, user: Map<String, Any?>): Boolean {
-        flagOverrides[name]?.let { return it }
+    fun getFlagDetail(name: String, user: Map<String, Any?>): FlagDetail {
+        // 1. Local override wins and skips telemetry (mirrors the override path).
+        flagOverrides[name]?.let { return FlagDetail(it, Reason.OVERRIDE) }
+        // Single telemetry emit for every non-override path (steps 2–5).
         telemetry.emit("gate", name)
-        val gates = flagsBlob?.get("gates") as? Map<String, Any?> ?: return false
-        return Eval.evalGate(gates[name] as? Map<String, Any?>, withAnonId(user))
+        // 2. No rules blob loaded yet.
+        val gates = flagsBlob?.get("gates") as? Map<String, Any?>
+            ?: return FlagDetail(false, Reason.CLIENT_NOT_READY)
+        // 3. Gate absent from the loaded blob.
+        val gate = gates[name] as? Map<String, Any?>
+            ?: return FlagDetail(false, Reason.FLAG_NOT_FOUND)
+        // 4. Gate present but disabled / killed — read the same fields the
+        //    canonical eval reads (killswitch + enabled) so the two never drift.
+        if (boolFlag(gate["killswitch"]) || !boolFlag(gate["enabled"])) {
+            return FlagDetail(false, Reason.OFF)
+        }
+        // 5. Real evaluation.
+        val value = Eval.evalGate(gate, withAnonId(user))
+        return FlagDetail(value, if (value) Reason.RULE_MATCH else Reason.DEFAULT)
+    }
+
+    /**
+     * Read a feature gate. With [default] it is returned ONLY when the gate
+     * cannot be evaluated (client not initialized or flag not found) — never for
+     * a gate that legitimately evaluates to false. The 2-arg form keeps
+     * returning false for a missing flag.
+     */
+    fun getFlag(name: String, user: Map<String, Any?>, default: Boolean = false): Boolean {
+        val d = getFlagDetail(name, user)
+        return if (d.reason == Reason.CLIENT_NOT_READY || d.reason == Reason.FLAG_NOT_FOUND) default
+        else d.value
+    }
+
+    // Boundary mirror of Eval's private `enabled` — keeps the OFF check reading
+    // the same shape (Boolean or 1/0 Number) the canonical eval reads.
+    private fun boolFlag(v: Any?): Boolean = when (v) {
+        is Boolean -> v
+        is Number -> v.toInt() == 1
+        else -> false
     }
 
     /**
@@ -124,12 +206,18 @@ class Client(
         return if (!hasUnit && anon != null) user + ("anonymous_id" to anon) else user
     }
 
+    /**
+     * Read a dynamic config value. [default] is returned when the config key is
+     * absent (no override and not present in the loaded blob). A `null` override
+     * is honoured and wins over [default].
+     */
     @Suppress("UNCHECKED_CAST")
-    fun getConfig(name: String): Any? {
+    fun getConfig(name: String, default: Any? = null): Any? {
         configOverrides[name]?.let { return it.value }
         telemetry.emit("config", name)
-        val configs = flagsBlob?.get("configs") as? Map<String, Any?> ?: return null
-        return (configs[name] as? Map<String, Any?>)?.get("value")
+        val configs = flagsBlob?.get("configs") as? Map<String, Any?> ?: return default
+        val entry = configs[name] as? Map<String, Any?> ?: return default
+        return entry["value"]
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -157,7 +245,9 @@ class Client(
         }
     }
 
-    private suspend fun fetchAll() = withContext(Dispatchers.IO) {
+    /** Returns true if either blob was refreshed with new data (200, not 304). */
+    private suspend fun fetchAll(): Boolean = withContext(Dispatchers.IO) {
+        var changed = false
         val flagsRes = httpGet("/sdk/flags", flagsEtag)
         flagsRes.headers().firstValue("X-Poll-Interval").ifPresent {
             it.toIntOrNull()?.let { v -> pollIntervalSec = v }
@@ -165,7 +255,8 @@ class Client(
         when (flagsRes.statusCode()) {
             200 -> {
                 flagsRes.headers().firstValue("ETag").ifPresent { flagsEtag = it }
-                flagsBlob = fromJsonElement(json.parseToJsonElement(String(flagsRes.body()))) as? Map<String, Any?>
+                applyFlags(String(flagsRes.body()))
+                changed = true
             }
             304 -> {}
             else -> error("/sdk/flags: ${flagsRes.statusCode()}")
@@ -174,11 +265,57 @@ class Client(
         when (expsRes.statusCode()) {
             200 -> {
                 expsRes.headers().firstValue("ETag").ifPresent { expsEtag = it }
-                expsBlob = fromJsonElement(json.parseToJsonElement(String(expsRes.body()))) as? Map<String, Any?>
+                applyExps(String(expsRes.body()))
+                changed = true
             }
             304 -> {}
             else -> error("/sdk/experiments: ${expsRes.statusCode()}")
         }
+        changed
+    }
+
+    // Decode + store the body of /sdk/flags (resp. /sdk/experiments). Factored
+    // out of fetchAll so the wire-decode path is named and reusable.
+    @Suppress("UNCHECKED_CAST")
+    private fun applyFlags(body: String) {
+        flagsBlob = fromJsonElement(json.parseToJsonElement(body)) as? Map<String, Any?>
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun applyExps(body: String) {
+        expsBlob = fromJsonElement(json.parseToJsonElement(body)) as? Map<String, Any?>
+    }
+
+    /**
+     * Subscribe to data-change notifications. The listener fires after a
+     * background poll fetch returns NEW data (200, not 304) — i.e. after the
+     * cached blobs are refreshed. Never fires in localMode (no polling) and not
+     * for the initial [init] fetch. Returns an unsubscribe function.
+     */
+    fun onChange(listener: () -> Unit): () -> Unit {
+        changeListeners.add(listener)
+        return { changeListeners.remove(listener) }
+    }
+
+    private fun notifyChange() {
+        for (l in changeListeners) {
+            runCatching { l() }.onFailure { log.warning("onChange listener threw: ${it.message}") }
+        }
+    }
+
+    /**
+     * Test-only seam: simulate a background poll that brought NEW data — replace
+     * the cached blobs and fire change listeners, exactly as the poll loop does
+     * on a 200. Lets onChange be exercised without a real network. Same-package
+     * [internal] visibility; not part of the public API.
+     */
+    internal fun applyDataForTest(
+        flags: Map<String, Any?>? = flagsBlob,
+        experiments: Map<String, Any?>? = expsBlob,
+    ) {
+        flagsBlob = flags
+        expsBlob = experiments
+        notifyChange()
     }
 
     private fun httpGet(path: String, etag: String?): HttpResponse<ByteArray> {
@@ -243,5 +380,57 @@ class Client(
         @JvmStatic
         fun forTesting(): Client = Client(apiKey = "", disableTelemetry = true, localMode = true)
             .also { it.initialized = true }
+
+        /**
+         * Build a fully OFFLINE client from pre-captured blobs — no network ever.
+         * Reuses the [localMode] plumbing (`init()`/`initOnce()`/`track()` are
+         * no-ops, telemetry off) but, unlike [forTesting], seeds the REAL flags +
+         * experiments blobs so evaluations run the canonical [Eval] against the
+         * snapshot. Local overrides still apply on top.
+         *
+         * @param flags the body of `GET /sdk/flags` (a map with `gates`/`configs`)
+         * @param experiments the body of `GET /sdk/experiments` (a map with
+         *   `experiments`/`universes`)
+         */
+        @JvmStatic
+        fun fromSnapshot(flags: Map<String, Any?>, experiments: Map<String, Any?>): Client =
+            Client(apiKey = "", disableTelemetry = true, localMode = true).also {
+                it.flagsBlob = flags
+                it.expsBlob = experiments
+                it.initialized = true
+            }
+
+        /**
+         * Build a fully OFFLINE client from a snapshot JSON file on disk. The file
+         * must contain `{ "flags": <GET /sdk/flags body>, "experiments": <GET
+         * /sdk/experiments body> }`. See [fromSnapshot].
+         */
+        @JvmStatic
+        @Suppress("UNCHECKED_CAST")
+        fun fromFile(path: String): Client {
+            val snapshotJson = Json { ignoreUnknownKeys = true; isLenient = true }
+            val raw = String(Files.readAllBytes(Paths.get(path)))
+            val root = snapshotJson.parseToJsonElement(raw) as? JsonObject
+                ?: error("snapshot file is not a JSON object: $path")
+            val flags = (decode(root["flags"]) as? Map<String, Any?>) ?: emptyMap()
+            val experiments = (decode(root["experiments"]) as? Map<String, Any?>) ?: emptyMap()
+            return fromSnapshot(flags, experiments)
+        }
+
+        // Same JSON → Kotlin coercion the instance fetch path uses, hoisted so the
+        // companion can decode a snapshot file without an instance.
+        private fun decode(e: JsonElement?): Any? = when (e) {
+            null, is JsonNull -> null
+            is JsonPrimitive -> when {
+                e.isString -> e.contentOrNull
+                e.contentOrNull?.lowercase() == "true" -> true
+                e.contentOrNull?.lowercase() == "false" -> false
+                e.longOrNull != null -> e.longOrNull
+                e.doubleOrNull != null -> e.doubleOrNull
+                else -> e.contentOrNull
+            }
+            is JsonObject -> e.mapValues { decode(it.value) }
+            is JsonArray -> e.map { decode(it) }
+        }
     }
 }

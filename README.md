@@ -19,6 +19,86 @@ c.track("u_123", "purchase", mapOf("amount" to 49))
 c.close()
 ```
 
+## Default values
+
+`getFlag` and `getConfig` take an optional default. The flag default is returned
+**only** when the gate cannot be evaluated — the client isn't initialized yet, or
+the flag isn't in the loaded blob — and **never** for a flag that legitimately
+evaluates to `false`. The existing two-argument call stays valid.
+
+```kotlin
+// returns `true` only if the client isn't ready / the flag is unknown;
+// a known flag that evaluates false still returns false
+c.getFlag("new_checkout", mapOf("user_id" to "u_123"), default = true)
+
+// returns "Pay now" if the config key is absent
+c.getConfig("billing_copy", default = "Pay now")
+```
+
+## Evaluation detail
+
+`getFlagDetail` returns the value plus a `reason` explaining it (LaunchDarkly
+`variationDetail` parity). The reason is computed at the SDK boundary; the
+canonical evaluation is untouched.
+
+```kotlin
+val d: FlagDetail = c.getFlagDetail("new_checkout", mapOf("user_id" to "u_123"))
+d.value   // Boolean
+d.reason  // one of the Reason constants
+```
+
+`reason` is one of:
+
+| `Reason` constant  | Meaning                                              |
+| ------------------ | ---------------------------------------------------- |
+| `OVERRIDE`         | A local override supplied the value (no telemetry).  |
+| `CLIENT_NOT_READY` | Client not initialized — no rules blob loaded yet.   |
+| `FLAG_NOT_FOUND`   | The gate name isn't present in the loaded blob.      |
+| `OFF`              | Gate present but disabled / killed.                  |
+| `RULE_MATCH`       | The gate evaluated `true` (rules + rollout passed).  |
+| `DEFAULT`          | The gate evaluated `false`.                          |
+
+`getFlag` is implemented on top of `getFlagDetail` and returns `.value`.
+
+## Change listeners
+
+`onChange` subscribes to data-change notifications. The listener fires after a
+background poll brings **new** data (HTTP 200, not 304) — not for the initial
+`init()` fetch, and never in an offline/test client (no polling). It returns an
+unsubscribe function.
+
+```kotlin
+val unsubscribe = c.onChange {
+    // rebuild any cached evaluations, warm a downstream cache, etc.
+}
+// later
+unsubscribe()
+```
+
+Each listener is invoked in a try/catch; a throwing listener is logged and does
+not affect the others.
+
+## Offline snapshot
+
+Run fully offline against a pre-captured snapshot — no network ever. Like
+`forTesting()` this uses the local-mode plumbing (`init()`/`initOnce()`/`track()`
+are no-ops, telemetry off), but it seeds the **real** flags + experiments blobs
+so evaluations run the canonical eval against the snapshot. Local overrides still
+apply on top.
+
+```kotlin
+// From the two wire bodies directly:
+val c = Client.fromSnapshot(
+    flags = mapOf("gates" to /* … body of GET /sdk/flags */),
+    experiments = mapOf("experiments" to /* … body of GET /sdk/experiments */),
+)
+c.getFlag("new_checkout", mapOf("user_id" to "u_123"))
+
+// Or from a JSON file shaped like
+//   { "flags": <GET /sdk/flags body>, "experiments": <GET /sdk/experiments body> }
+val c2 = Client.fromFile("/path/to/snapshot.json")
+```
+
 ## Anonymous visitors (zero-config bucketing)
 
 For logged-out traffic you need a *stable* unit so a fractional rollout buckets

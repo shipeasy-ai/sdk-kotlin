@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **Flag/config default values.** `getFlag(name, user, default = false)` and
+  `getConfig(name, default = null)` gained an optional default. The flag default
+  is returned only when the gate cannot be evaluated (client not ready or flag
+  not found) — never for a flag that legitimately evaluates to `false`; the
+  config default is returned when the key is absent. The existing 2-arg call
+  sites stay valid (additive, backward-compatible).
+- **Evaluation detail (`getFlagDetail`).** New `FlagDetail(value, reason)` and
+  `getFlagDetail(name, user)` report *why* a gate resolved (LaunchDarkly
+  `variationDetail` parity) via the `Reason` constants `OVERRIDE`,
+  `CLIENT_NOT_READY`, `FLAG_NOT_FOUND`, `OFF`, `RULE_MATCH`, `DEFAULT`. The
+  reason is computed at the SDK boundary; the canonical eval is untouched.
+  `getFlag` now delegates to `getFlagDetail`.
+- **Change listeners (`onChange`).** Subscribe to data-change notifications;
+  the listener fires after a background poll brings new data (200, not 304) and
+  returns an unsubscribe function. Never fires for the initial `init()` fetch or
+  in an offline/local-mode client. Listeners are isolated (try/catch + log).
+- **Offline snapshot data source.** `Client.fromSnapshot(flags, experiments)`
+  and `Client.fromFile(path)` build a fully offline client (no network;
+  `init()`/`initOnce()`/`track()` no-op, telemetry off) seeded with the real
+  blobs so evaluations run the canonical eval against the snapshot. Local
+  overrides still apply on top.
+
 - **Local-override test utility.** Added `Client.forTesting()` — a no-network,
   no-key client (telemetry off; `init()`/`initOnce()`/`track()` are no-ops) for
   unit tests. New override setters `overrideFlag`, `overrideConfig`,
