@@ -45,3 +45,50 @@ http4k, Javalin) can use the `AnonId` primitives directly. An explicit
 the browser SDK buckets identically; a request with **no** unit still resolves a
 fully-rolled (100%) gate as on. Cookie name + format are a cross-SDK contract —
 see `18-identity-bucketing.md`.
+
+## Testing
+
+In unit tests you usually don't want the SDK to hit the network or read live
+flag state. `Client.forTesting()` returns a ready-to-use client that does **zero
+network**: telemetry is off, `init()`/`initOnce()` and `track()` are no-ops, and
+no API key is required. Seed exactly the values your test needs with the
+`override*` setters — an override always wins over fetched state, so the same
+setters also work on a normal client to force a value locally.
+
+```kotlin
+import ai.shipeasy.Client
+
+val c = Client.forTesting()
+
+// Flags
+c.overrideFlag("new_checkout", true)
+c.getFlag("new_checkout", mapOf("user_id" to "u_123"))   // → true
+
+// Configs (value may be any type, including null)
+c.overrideConfig("billing_copy", "Pay now")
+c.getConfig("billing_copy")                              // → "Pay now"
+
+// Experiments — getExperiment returns inExperiment=true with your group/params
+c.overrideExperiment("checkout_button", group = "treatment", params = mapOf("color" to "green"))
+val r = c.getExperiment("checkout_button", mapOf("user_id" to "u_123"), defaultParams = null)
+r.inExperiment  // true
+r.group         // "treatment"
+r.params        // {color=green}
+
+// track() is a no-op here — no key, no network, never throws
+c.track("u_123", "purchase", mapOf("amount" to 49))
+
+// Reset between cases
+c.clearOverrides()
+```
+
+Entities you don't override fall back to their defaults: a flag reads `false`, a
+config reads `null`, and an experiment reads not-in-experiment. The client is
+`AutoCloseable`, so wrap it in `use { }` to clean up after the test:
+
+```kotlin
+Client.forTesting().use { c ->
+    c.overrideFlag("new_checkout", true)
+    assertTrue(c.getFlag("new_checkout", emptyMap()))
+}
+```
