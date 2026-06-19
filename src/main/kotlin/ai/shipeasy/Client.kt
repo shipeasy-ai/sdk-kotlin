@@ -57,6 +57,17 @@ class Client(
     env: String = "prod",
     disableTelemetry: Boolean = false,
     telemetryUrl: String? = null,
+    // Attribute names usable for targeting but never persisted in analytics
+    // (LD/Statsig `privateAttributes`). The server evaluates locally, so private
+    // attrs never leave for evaluation at all; the only egress is `/collect`, and
+    // the listed keys are stripped from every outbound `track()` payload.
+    private val privateAttributes: List<String> = emptyList(),
+    // Sticky-bucketing store (doc 20 §2). When provided, `getExperiment` locks a
+    // unit to its first-assigned variant — changing allocation % or weights won't
+    // re-bucket enrolled units (changing the experiment salt is the reshuffle
+    // lever). Absent ⇒ deterministic (fully backward compatible). Built-in:
+    // [InMemoryStickyStore].
+    private val stickyStore: StickyBucketStore? = null,
     // Local (no-network) test mode. Set only via [forTesting]; init/initOnce/
     // track become no-ops and the client never reaches the network. See the
     // "Testing" section of the README.
@@ -227,21 +238,55 @@ class Client(
         val flags = flagsBlob
         val exps = expsBlob
         val exp = (exps?.get("experiments") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
-        val r = Eval.evalExperiment(exp, flags, exps, withAnonId(user))
+        val r = Eval.evalExperiment(exp, flags, exps, withAnonId(user), name, stickyStore)
         return if (r.params == null) r.copy(params = defaultParams) else r
+    }
+
+    /**
+     * Drop caller-marked private attributes from an outbound props bag. A no-op
+     * when no private attributes are configured or the bag is empty.
+     */
+    private fun stripPrivate(properties: Map<String, Any?>?): Map<String, Any?>? {
+        if (properties == null || privateAttributes.isEmpty()) return properties
+        return properties.filterKeys { it !in privateAttributes }
     }
 
     fun track(userId: String, eventName: String, properties: Map<String, Any?>? = null) {
         if (localMode) return
+        val safeProps = stripPrivate(properties)
         val event = buildMap<String, Any?> {
             put("type", "metric"); put("event_name", eventName); put("user_id", userId)
             put("ts", Instant.now().toEpochMilli())
-            if (!properties.isNullOrEmpty()) put("properties", properties)
+            if (!safeProps.isNullOrEmpty()) put("properties", safeProps)
         }
         val body = mapOf("events" to listOf(event))
         scope.launch {
             runCatching { post("/collect", json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray()) }
                 .onFailure { log.warning("track failed: ${it.message}") }
+        }
+    }
+
+    /**
+     * Emit an exposure event for an experiment at the server-side decision point
+     * (parity with the browser's auto-exposure). The server is stateless and
+     * never auto-logs, so call this when you actually present the treatment.
+     * Re-evaluates [experimentName] for [userId]; if the user is enrolled, POSTs
+     * a single `exposure` event to `/collect`. No-op in localMode or when the
+     * user isn't enrolled.
+     */
+    fun logExposure(userId: String, experimentName: String) {
+        if (localMode) return
+        val result = getExperiment(experimentName, mapOf("user_id" to userId), null)
+        if (!result.inExperiment) return
+        val event = buildMap<String, Any?> {
+            put("type", "exposure"); put("experiment", experimentName)
+            put("group", result.group); put("user_id", userId)
+            put("ts", Instant.now().toEpochMilli())
+        }
+        val body = mapOf("events" to listOf(event))
+        scope.launch {
+            runCatching { post("/collect", json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray()) }
+                .onFailure { log.warning("logExposure failed: ${it.message}") }
         }
     }
 
@@ -393,8 +438,20 @@ class Client(
          *   `experiments`/`universes`)
          */
         @JvmStatic
-        fun fromSnapshot(flags: Map<String, Any?>, experiments: Map<String, Any?>): Client =
-            Client(apiKey = "", disableTelemetry = true, localMode = true).also {
+        @JvmOverloads
+        fun fromSnapshot(
+            flags: Map<String, Any?>,
+            experiments: Map<String, Any?>,
+            // Optional sticky-bucketing store. Threaded into experiment eval so an
+            // offline client can exercise sticky assignments. Absent ⇒ deterministic.
+            stickyStore: StickyBucketStore? = null,
+        ): Client =
+            Client(
+                apiKey = "",
+                disableTelemetry = true,
+                stickyStore = stickyStore,
+                localMode = true,
+            ).also {
                 it.flagsBlob = flags
                 it.expsBlob = experiments
                 it.initialized = true

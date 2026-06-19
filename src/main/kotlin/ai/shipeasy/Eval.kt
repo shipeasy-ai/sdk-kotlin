@@ -2,6 +2,47 @@ package ai.shipeasy
 
 data class ExperimentResult(val inExperiment: Boolean, val group: String, val params: Any?)
 
+/**
+ * One persisted sticky assignment: the chosen group plus the 8-char salt prefix
+ * (the reshuffle key). Matches the canonical TS `StickyEntry { g, s }` (doc 20
+ * §2) — `salt8` is `experiment.salt.substring(0, 8)`.
+ */
+data class StickyEntry(val group: String, val salt8: String)
+
+/**
+ * Pluggable sticky-bucketing store for the server (doc 20 §2). Keyed by the
+ * bucketing unit ([Eval.pickIdentifier]-resolved); the value is that unit's
+ * per-experiment assignments (experiment name → [StickyEntry]). Absent from the
+ * [Client] ⇒ today's deterministic behaviour. Built-in: [InMemoryStickyStore].
+ */
+interface StickyBucketStore {
+    /** All assignments for [unit] (experiment name → entry), or null if none. */
+    fun get(unit: String): Map<String, StickyEntry>?
+
+    /** Persist [entry] for ([unit], [exp]). */
+    fun set(unit: String, exp: String, entry: StickyEntry)
+}
+
+/**
+ * A process-local sticky store (thread-safe Map-backed). Handy for tests and
+ * single-process servers. Mirrors the TS `createInMemoryStickyStore`.
+ */
+class InMemoryStickyStore(
+    seed: Map<String, Map<String, StickyEntry>> = emptyMap(),
+) : StickyBucketStore {
+    private val m = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, StickyEntry>>()
+
+    init {
+        for ((unit, entries) in seed) m[unit] = java.util.concurrent.ConcurrentHashMap(entries)
+    }
+
+    override fun get(unit: String): Map<String, StickyEntry>? = m[unit]
+
+    override fun set(unit: String, exp: String, entry: StickyEntry) {
+        m.computeIfAbsent(unit) { java.util.concurrent.ConcurrentHashMap() }[exp] = entry
+    }
+}
+
 internal object Eval {
     val NOT_IN = ExperimentResult(false, "control", null)
 
@@ -87,6 +128,12 @@ internal object Eval {
         flags: Map<String, Any?>?,
         exps: Map<String, Any?>?,
         user: Map<String, Any?>,
+        // Experiment name + optional sticky store. When [store] is non-null and
+        // it holds an assignment for (unit, expName) whose salt8 still matches,
+        // the stored group is returned without re-running allocation/pick; a
+        // fresh pick is persisted. Both null ⇒ deterministic (unchanged).
+        expName: String? = null,
+        store: StickyBucketStore? = null,
     ): ExperimentResult {
         if (exp == null || exp["status"] != "running") return NOT_IN
 
@@ -115,16 +162,34 @@ internal object Eval {
         }
 
         val salt = (exp["salt"] as? String) ?: ""
+        val salt8 = salt.take(8)
+        val groups = (exp["groups"] as? List<Map<String, Any?>>) ?: return NOT_IN
+
+        // Sticky short-circuit (doc 20 §2): an enrolled unit whose stored salt
+        // prefix still matches skips the allocation gate (so a shrinking
+        // allocation keeps it in) and returns the stored group without re-running
+        // the pick. A salt mismatch or a vanished group falls through to
+        // re-bucket + overwrite below.
+        if (store != null && expName != null) {
+            val entry = store.get(uid)?.get(expName)
+            if (entry != null && entry.salt8 == salt8) {
+                val g = groups.firstOrNull { (it["name"] as? String) == entry.group }
+                if (g != null) return ExperimentResult(true, g["name"] as? String ?: "control", g["params"])
+                // Stored group gone — fall through to re-bucket + overwrite.
+            }
+        }
+
         val allocPct = (exp["allocationPct"] as? Number)?.toInt() ?: 0
         if (Murmur3.bucket("$salt:alloc:$uid", 10000) >= allocPct) return NOT_IN
 
         val groupHash = Murmur3.bucket("$salt:group:$uid", 10000)
-        val groups = (exp["groups"] as? List<Map<String, Any?>>) ?: return NOT_IN
         var cumulative = 0
         groups.forEachIndexed { i, g ->
             cumulative += (g["weight"] as? Number)?.toInt() ?: 0
             if (groupHash < cumulative || i == groups.size - 1) {
-                return ExperimentResult(true, g["name"] as? String ?: "control", g["params"])
+                val name = g["name"] as? String ?: "control"
+                if (store != null && expName != null) store.set(uid, expName, StickyEntry(name, salt8))
+                return ExperimentResult(true, name, g["params"])
             }
         }
         return NOT_IN
