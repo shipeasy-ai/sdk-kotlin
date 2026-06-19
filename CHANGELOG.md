@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Experiment `bucketBy`.** Experiment evaluation now honors a per-experiment
+  `bucketBy` attribute (e.g. `company_id`) so a whole org can be kept on one
+  variant. When set and the user carries a non-empty string (or a number) at
+  that attribute, the holdout, allocation, and group hashes all bucket on it;
+  otherwise it falls back to `user_id` ?? `anonymous_id` (matching gates). No
+  resolvable unit ⇒ not enrolled. Matches the canonical TS/core impl.
 - **Flag/config default values.** `getFlag(name, user, default = false)` and
   `getConfig(name, default = null)` gained an optional default. The flag default
   is returned only when the gate cannot be evaluated (client not ready or flag

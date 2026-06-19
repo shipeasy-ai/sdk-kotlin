@@ -20,6 +20,24 @@ internal object Eval {
     private fun userId(user: Map<String, Any?>): String? =
         (user["user_id"] ?: user["anonymous_id"])?.toString()
 
+    /**
+     * Resolve the bucketing identifier, matching the canonical
+     * `pickIdentifier` in `packages/core/src/eval/gate.ts`. When [bucketBy] is
+     * set and the user carries a non-empty String at that attribute, bucket on
+     * it (e.g. `company_id` to keep a whole org on one variant); a Number is
+     * stringified. Otherwise fall back to `user_id` ?? `anonymous_id`.
+     */
+    private fun pickIdentifier(user: Map<String, Any?>, bucketBy: String?): String? {
+        if (!bucketBy.isNullOrEmpty()) {
+            when (val v = user[bucketBy]) {
+                is String -> if (v.isNotEmpty()) return v
+                is Number -> return v.toString()
+                else -> {}
+            }
+        }
+        return userId(user)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun matchRule(rule: Map<String, Any?>, user: Map<String, Any?>): Boolean {
         val attr = rule["attr"] as? String ?: return false
@@ -78,7 +96,12 @@ internal object Eval {
             if (gate == null || !evalGate(gate, user)) return NOT_IN
         }
 
-        val uid = userId(user) ?: return NOT_IN
+        // Bucket on exp.bucketBy (e.g. company_id) when set, else
+        // user_id/anonymous_id. Holdout, allocation, and group all hash on this
+        // SAME unit so a whole org moves together. No resolvable unit ⇒ not
+        // enrolled. See packages/core/src/eval/experiment.ts.
+        val bucketBy = exp["bucketBy"] as? String
+        val uid = pickIdentifier(user, bucketBy) ?: return NOT_IN
 
         val universeName = exp["universe"] as? String
         if (universeName != null) {
