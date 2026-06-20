@@ -77,6 +77,25 @@ class Client(
     private val baseUrl: String = (baseUrl ?: "https://edge.shipeasy.dev").trimEnd('/')
     private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
 
+    // Deployment env, tagged onto see() error events (telemetry already carries
+    // it separately on its own beacon path).
+    private val env: String = env
+
+    // Per-process spam guard for see(): repeated reports of the same issue within
+    // a 30s window collapse to a single send, with a hard per-process cap.
+    private val seeLimiter = SeeLimiter()
+
+    // Injectable seam for the see() / track-style /collect POST. Defaults to a
+    // fire-and-forget POST on the IO scope (exactly like track()). Same-package
+    // [internal] so tests can capture the wire body synchronously without a real
+    // network (mirrors Telemetry's injectable sender).
+    internal var seeSender: (ByteArray) -> Unit = { body ->
+        scope.launch {
+            runCatching { post("/collect", body) }
+                .onFailure { log.warning("see() send failed: ${it.message}") }
+        }
+    }
+
     // Per-evaluation usage telemetry. ON by default; pass disableTelemetry = true
     // to opt out. Always off in localMode (an empty key disables it too). See
     // Telemetry.kt.
@@ -106,6 +125,12 @@ class Client(
     // CopyOnWriteArrayList so iteration during notify is safe under concurrent
     // (un)subscription.
     private val changeListeners = CopyOnWriteArrayList<() -> Unit>()
+
+    init {
+        // Register as the default client backing the package-level see() funcs
+        // (last constructed wins — the server-SDK analog of TS's shipeasy({key})).
+        setDefaultClient(this)
+    }
 
     suspend fun init() {
         if (localMode) return
@@ -288,6 +313,47 @@ class Client(
             runCatching { post("/collect", json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray()) }
                 .onFailure { log.warning("logExposure failed: ${it.message}") }
         }
+    }
+
+    // ---- see() structured error reporting ----
+
+    /**
+     * Report a caught throwable (or thrown non-throwable). Fire-and-forget; never
+     * blocks or throws into the request path. Terminate with `to(outcome)`:
+     *
+     * ```kotlin
+     * client.see(e).causesThe("checkout").to("use cached prices")
+     * ```
+     */
+    fun see(problem: Any?): SeeChain = SeeChain(problem, ::dispatchSee)
+
+    /**
+     * Report a non-exception problem. The name is a stable fingerprint key — put
+     * variable data in `extras()`, never in the name.
+     */
+    fun seeViolation(name: String): SeeChain = SeeChain(Violation(name), ::dispatchSee)
+
+    /** Mark an exception as expected control flow — reports nothing. */
+    fun controlFlowException(err: Throwable): ControlFlowChain = ControlFlowChain(err)
+
+    // Build the wire event and fire-and-forget POST it to /collect. No-op in
+    // localMode. Spam-guarded. Never raises into caller code.
+    private fun dispatchSee(built: BuiltSee) {
+        if (localMode) return
+        runCatching {
+            val ev = buildSeeEvent(
+                built.problem,
+                built.subject,
+                built.outcome,
+                stripPrivate(built.extras),
+                side = "server",
+                sdkVersion = VERSION,
+                env = env,
+            )
+            if (!seeLimiter.shouldSend(ev)) return
+            val body = mapOf("events" to listOf(ev))
+            seeSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
+        }.onFailure { log.warning("see() send failed: ${it.message}") }
     }
 
     /** Returns true if either blob was refreshed with new data (200, not 304). */

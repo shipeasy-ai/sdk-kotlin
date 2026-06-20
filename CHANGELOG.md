@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **`see()` structured error reporting.** New error grammar mirroring
+  `@shipeasy/sdk`. Instance methods `client.see(problem)`,
+  `client.seeViolation(name)`, `client.controlFlowException(err)`, plus
+  package-level `see(...)`, `seeViolation(...)`, `controlFlowException(...)`
+  backed by a default client (the last-constructed `Client` registers itself;
+  override with `setDefaultClient`). A global call before any client logs a
+  warning and is a no-op. The fluent chain `see(e).causesThe(subject)
+  .extras(map).to(outcome)` builds a `{type:"error", kind, error_type, message,
+  stack?, subject, outcome, extras?, side:"server", env?, sdk_version, ts}`
+  event and fire-and-forgets it to `/collect`, exactly like `track()` — `to()`
+  is the terminal (idempotent), `causesThe()`/`extras()` are order-independent
+  setters before it. `controlFlowException(e).because(reason)` marks the
+  throwable expected and reports nothing. Extras are sanitized (≤20 keys,
+  200-char string values, null/non-primitive dropped) and private attributes
+  are stripped; a per-process spam limiter (30s dedup, 25 cap) bounds chatter.
+  No-op in local/offline mode. New `VERSION` constant is the single source of
+  the event's `sdk_version`.
 - **Private attributes.** New `privateAttributes` client option (a list of
   attribute names). These attributes remain usable for targeting (the server
   evaluates locally, so they never leave for evaluation), but the listed keys are
