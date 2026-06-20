@@ -19,6 +19,29 @@ c.track("u_123", "purchase", mapOf("amount" to 49))
 c.close()
 ```
 
+## Server-side rendering (SSR)
+
+Emit the request's evaluated flags as a declarative `<script>` tag so the
+browser SDK has them on first paint. `bootstrapScriptTag` carries the payload in
+`data-*` attributes (**no key**); the static `se-bootstrap.js` loader hydrates
+`window.__SE_BOOTSTRAP` and writes the `__se_anon_id` cookie so the browser
+buckets identically to the server.
+
+```kotlin
+val user = mapOf("user_id" to "u_123")
+
+// Two tags for the document <head>. The PUBLIC client key (not the server
+// key) goes on the i18n loader tag.
+val head = c.bootstrapScriptTag(user, anonId = anonId) +
+           c.i18nScriptTag(clientKey, "en:prod")
+
+// …or get the raw payload ({flags, configs, experiments, killswitches}):
+val boot = c.evaluate(user)
+```
+
+`bootstrapScriptTag` also accepts `i18nProfile` and `baseUrl`
+(defaults to `https://cdn.shipeasy.ai`).
+
 ## Default values
 
 `getFlag` and `getConfig` take an optional default. The flag default is returned
