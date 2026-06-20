@@ -268,6 +268,101 @@ class Client(
     }
 
     /**
+     * Batch-evaluate every loaded gate, config and experiment for [user] into a
+     * bootstrap payload (`{flags, configs, experiments, killswitches}`) keyed to
+     * match the browser SDK's `window.__SE_BOOTSTRAP` shape. Local overrides
+     * win. Killswitches are folded into per-gate evaluation, so the standalone
+     * `killswitches` map is empty for this SDK. No telemetry (a batch evaluate
+     * is not a per-flag exposure).
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun evaluate(user: Map<String, Any?>): Map<String, Any?> {
+        val u = withAnonId(user)
+        val flags = flagsBlob
+        val exps = expsBlob
+
+        val outFlags = LinkedHashMap<String, Any?>()
+        val outConfigs = LinkedHashMap<String, Any?>()
+        val outExps = LinkedHashMap<String, Any?>()
+
+        (flags?.get("gates") as? Map<String, Any?>)?.forEach { (name, gate) ->
+            outFlags[name] = flagOverrides[name] ?: Eval.evalGate(gate as Map<String, Any?>, u)
+        }
+        (flags?.get("configs") as? Map<String, Any?>)?.forEach { (name, entry) ->
+            outConfigs[name] =
+                if (configOverrides.containsKey(name)) configOverrides[name]?.value
+                else (entry as? Map<String, Any?>)?.get("value")
+        }
+        (exps?.get("experiments") as? Map<String, Any?>)?.forEach { (name, exp) ->
+            val r = experimentOverrides[name]
+                ?: Eval.evalExperiment(exp as? Map<String, Any?>, flags, exps, u, name, stickyStore)
+            outExps[name] = linkedMapOf<String, Any?>(
+                "inExperiment" to r.inExperiment,
+                "group" to r.group,
+                "params" to r.params,
+            )
+        }
+
+        return linkedMapOf(
+            "flags" to outFlags,
+            "configs" to outConfigs,
+            "experiments" to outExps,
+            "killswitches" to LinkedHashMap<String, Any?>(),
+        )
+    }
+
+    /**
+     * Return the cross-platform SSR bootstrap `<script>` tag for a request:
+     * se-bootstrap.js reads its `data-*` attributes and hydrates
+     * `window.__SE_BOOTSTRAP` (and writes the anon cookie). No SDK key is
+     * embedded — the server key must never reach the browser.
+     */
+    @JvmOverloads
+    fun bootstrapScriptTag(
+        user: Map<String, Any?>,
+        anonId: String? = null,
+        i18nProfile: String = "en:prod",
+        baseUrl: String? = null,
+    ): String {
+        val payload = evaluate(user)
+        val base = cdnBase(baseUrl)
+        val profile = i18nProfile.ifEmpty { "en:prod" }
+        val attrs = StringBuilder("data-se-bootstrap ")
+        attrs.append(attr("data-flags", jsonStr(payload["flags"]))).append(' ')
+        attrs.append(attr("data-configs", jsonStr(payload["configs"]))).append(' ')
+        attrs.append(attr("data-experiments", jsonStr(payload["experiments"]))).append(' ')
+        attrs.append(attr("data-killswitches", jsonStr(payload["killswitches"]))).append(' ')
+        attrs.append(attr("data-i18n-profile", profile)).append(' ')
+        attrs.append(attr("data-api-url", base))
+        if (!anonId.isNullOrEmpty()) attrs.append(' ').append(attr("data-anon-id", anonId))
+        return "<script src=\"${escapeAttr("$base/sdk/bootstrap.js")}\" $attrs></script>"
+    }
+
+    /**
+     * Return the i18n loader `<script>` tag. The loader fetches translations for
+     * the profile using the PUBLIC client key (safe to embed in HTML).
+     */
+    @JvmOverloads
+    fun i18nScriptTag(clientKey: String, profile: String = "en:prod", baseUrl: String? = null): String {
+        val base = cdnBase(baseUrl)
+        val p = profile.ifEmpty { "en:prod" }
+        return "<script src=\"${escapeAttr("$base/sdk/i18n/loader.js")}\" " +
+            "${attr("data-key", clientKey)} ${attr("data-profile", p)}></script>"
+    }
+
+    private fun cdnBase(override: String?): String =
+        (if (override.isNullOrEmpty()) DEFAULT_CDN_BASE else override).trimEnd('/')
+
+    private fun jsonStr(v: Any?): String =
+        runCatching { json.encodeToString(JsonElement.serializer(), toJsonElement(v)) }.getOrDefault("{}")
+
+    private fun attr(name: String, value: String): String = "$name=\"${escapeAttr(value)}\""
+
+    private fun escapeAttr(v: String): String =
+        v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace("\"", "&quot;").replace("'", "&#39;")
+
+    /**
      * Drop caller-marked private attributes from an outbound props bag. A no-op
      * when no private attributes are configured or the bag is empty.
      */
@@ -481,6 +576,12 @@ class Client(
     private class NullableBox(val value: Any?)
 
     companion object {
+        /**
+         * CDN origin serving the static loader scripts (`/sdk/bootstrap.js`,
+         * `/sdk/i18n/loader.js`) — distinct from the edge API the blobs come from.
+         */
+        private const val DEFAULT_CDN_BASE = "https://cdn.shipeasy.ai"
+
         /**
          * Build a no-network client for tests. Telemetry is disabled, `init()`/
          * `initOnce()`/`track()` are no-ops (never reach the network), and no API
