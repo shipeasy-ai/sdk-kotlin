@@ -11,7 +11,7 @@ class TestUtilitiesTest {
     // apply when nothing is overridden.
     @Test
     fun forTestingNeedsNoNetworkOrKey() {
-        Client.forTesting().use { c ->
+        Engine.forTesting().use { c ->
             assertFalse(c.getFlag("anything", mapOf("user_id" to "u1")))
             assertNull(c.getConfig("anything"))
             val r = c.getExperiment("anything", mapOf("user_id" to "u1"), null)
@@ -22,7 +22,7 @@ class TestUtilitiesTest {
     // overrideFlag wins in getFlag.
     @Test
     fun overrideFlagWins() {
-        Client.forTesting().use { c ->
+        Engine.forTesting().use { c ->
             c.overrideFlag("new_checkout", true)
             assertTrue(c.getFlag("new_checkout", emptyMap()))
             c.overrideFlag("new_checkout", false)
@@ -33,7 +33,7 @@ class TestUtilitiesTest {
     // overrideConfig wins in getConfig, including a null value.
     @Test
     fun overrideConfigWins() {
-        Client.forTesting().use { c ->
+        Engine.forTesting().use { c ->
             c.overrideConfig("billing_copy", "hello")
             assertEquals("hello", c.getConfig("billing_copy"))
 
@@ -50,7 +50,7 @@ class TestUtilitiesTest {
     // group and params.
     @Test
     fun overrideExperimentWins() {
-        Client.forTesting().use { c ->
+        Engine.forTesting().use { c ->
             c.overrideExperiment("checkout_button", "treatment", mapOf("color" to "green"))
             val r = c.getExperiment("checkout_button", emptyMap(), mapOf("color" to "blue"))
             assertTrue(r.inExperiment)
@@ -62,7 +62,7 @@ class TestUtilitiesTest {
     // clearOverrides resets every override back to defaults.
     @Test
     fun clearOverridesResets() {
-        Client.forTesting().use { c ->
+        Engine.forTesting().use { c ->
             c.overrideFlag("f", true)
             c.overrideConfig("cfg", "v")
             c.overrideExperiment("exp", "t", mapOf("a" to 1))
@@ -78,7 +78,7 @@ class TestUtilitiesTest {
     // track() is a no-op on a forTesting() client — no key, no network, no throw.
     @Test
     fun trackIsNoOp() {
-        Client.forTesting().use { c ->
+        Engine.forTesting().use { c ->
             c.track("u1", "purchase", mapOf("amount" to 49))
             c.track("u1", "view")
         }

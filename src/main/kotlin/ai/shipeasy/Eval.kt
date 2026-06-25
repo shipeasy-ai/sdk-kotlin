@@ -13,7 +13,7 @@ data class StickyEntry(val group: String, val salt8: String)
  * Pluggable sticky-bucketing store for the server (doc 20 §2). Keyed by the
  * bucketing unit ([Eval.pickIdentifier]-resolved); the value is that unit's
  * per-experiment assignments (experiment name → [StickyEntry]). Absent from the
- * [Client] ⇒ today's deterministic behaviour. Built-in: [InMemoryStickyStore].
+ * [Engine] ⇒ today's deterministic behaviour. Built-in: [InMemoryStickyStore].
  */
 interface StickyBucketStore {
     /** All assignments for [unit] (experiment name → entry), or null if none. */

@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.logging.Logger
 
-/** Result of [Client.getFlagDetail]: the gate value plus the reason for it. */
+/** Result of [Engine.getFlagDetail]: the gate value plus the reason for it. */
 data class FlagDetail(val value: Boolean, val reason: String)
 
 /**
@@ -51,7 +51,15 @@ object Reason {
     const val DEFAULT = "DEFAULT"
 }
 
-class Client(
+/**
+ * Heavyweight evaluation engine: owns the API key, HTTP client, the cached
+ * flags/experiments blobs, the background poll timer, local overrides, telemetry
+ * and the see() error reporter. Construct ONE per process — typically via the
+ * package-level [configure], which builds it and stores it as the global engine
+ * backing the lightweight user-bound [Client]. (Renamed from `Client` in 0.8.0;
+ * the name `Client` is now the bound handle.)
+ */
+class Engine(
     private val apiKey: String,
     baseUrl: String? = null,
     env: String = "prod",
@@ -127,7 +135,7 @@ class Client(
     private val changeListeners = CopyOnWriteArrayList<() -> Unit>()
 
     init {
-        // Register as the default client backing the package-level see() funcs
+        // Register as the default engine backing the package-level see() funcs
         // (last constructed wins — the server-SDK analog of TS's shipeasy({key})).
         setDefaultClient(this)
     }
@@ -265,6 +273,23 @@ class Client(
         val exp = (exps?.get("experiments") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
         val r = Eval.evalExperiment(exp, flags, exps, withAnonId(user), name, stickyStore)
         return if (r.params == null) r.copy(params = defaultParams) else r
+    }
+
+    /**
+     * Read a killswitch from the loaded flags blob. Without [switchKey], returns
+     * true when the whole killswitch is killed. With [switchKey], returns true
+     * when that specific per-key override switch is on. Unknown killswitches /
+     * switches return false. Not user-scoped (mirrors the TS engine's
+     * `getKillswitch`); exposed on [Client] for one-stop ergonomics.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun getKillswitch(name: String, switchKey: String? = null): Boolean {
+        telemetry.emit("ks", name)
+        val ks = (flagsBlob?.get("killswitches") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
+            ?: return false
+        if (switchKey == null) return boolFlag(ks["killed"])
+        val switches = ks["switches"] as? Map<String, Any?> ?: return false
+        return boolFlag(switches[switchKey])
     }
 
     /**
@@ -417,7 +442,7 @@ class Client(
      * blocks or throws into the request path. Terminate with `to(outcome)`:
      *
      * ```kotlin
-     * client.see(e).causesThe("checkout").to("use cached prices")
+     * engine.see(e).causesThe("checkout").to("use cached prices")
      * ```
      */
     fun see(problem: Any?): SeeChain = SeeChain(problem, ::dispatchSee)
@@ -583,18 +608,18 @@ class Client(
         private const val DEFAULT_CDN_BASE = "https://cdn.shipeasy.ai"
 
         /**
-         * Build a no-network client for tests. Telemetry is disabled, `init()`/
+         * Build a no-network engine for tests. Telemetry is disabled, `init()`/
          * `initOnce()`/`track()` are no-ops (never reach the network), and no API
          * key is required. Seed values with [overrideFlag]/[overrideConfig]/
          * [overrideExperiment]; entities with no override fall back to their
          * defaults (flag → false, config → null, experiment → not in experiment).
          */
         @JvmStatic
-        fun forTesting(): Client = Client(apiKey = "", disableTelemetry = true, localMode = true)
+        fun forTesting(): Engine = Engine(apiKey = "", disableTelemetry = true, localMode = true)
             .also { it.initialized = true }
 
         /**
-         * Build a fully OFFLINE client from pre-captured blobs — no network ever.
+         * Build a fully OFFLINE engine from pre-captured blobs — no network ever.
          * Reuses the [localMode] plumbing (`init()`/`initOnce()`/`track()` are
          * no-ops, telemetry off) but, unlike [forTesting], seeds the REAL flags +
          * experiments blobs so evaluations run the canonical [Eval] against the
@@ -610,10 +635,10 @@ class Client(
             flags: Map<String, Any?>,
             experiments: Map<String, Any?>,
             // Optional sticky-bucketing store. Threaded into experiment eval so an
-            // offline client can exercise sticky assignments. Absent ⇒ deterministic.
+            // offline engine can exercise sticky assignments. Absent ⇒ deterministic.
             stickyStore: StickyBucketStore? = null,
-        ): Client =
-            Client(
+        ): Engine =
+            Engine(
                 apiKey = "",
                 disableTelemetry = true,
                 stickyStore = stickyStore,
@@ -625,13 +650,13 @@ class Client(
             }
 
         /**
-         * Build a fully OFFLINE client from a snapshot JSON file on disk. The file
+         * Build a fully OFFLINE engine from a snapshot JSON file on disk. The file
          * must contain `{ "flags": <GET /sdk/flags body>, "experiments": <GET
          * /sdk/experiments body> }`. See [fromSnapshot].
          */
         @JvmStatic
         @Suppress("UNCHECKED_CAST")
-        fun fromFile(path: String): Client {
+        fun fromFile(path: String): Engine {
             val snapshotJson = Json { ignoreUnknownKeys = true; isLenient = true }
             val raw = String(Files.readAllBytes(Paths.get(path)))
             val root = snapshotJson.parseToJsonElement(raw) as? JsonObject

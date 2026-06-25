@@ -19,7 +19,7 @@ class SeeTest {
 
     @AfterTest
     fun reset() {
-        // Each Client constructor registers itself as the default; clear it so a
+        // Each Engine constructor registers itself as the default; clear it so a
         // "no client yet" test isn't polluted by a sibling test's leftover.
         setDefaultClient(null)
     }
@@ -29,9 +29,9 @@ class SeeTest {
     // pattern TelemetryTest uses for its injectable sender.
     private fun captureClient(
         privateAttributes: List<String> = emptyList(),
-    ): Pair<Client, MutableList<JsonObject>> {
+    ): Pair<Engine, MutableList<JsonObject>> {
         val sent = mutableListOf<JsonObject>()
-        val c = Client("srv_key", baseUrl = "https://e.x", privateAttributes = privateAttributes)
+        val c = Engine("srv_key", baseUrl = "https://e.x", privateAttributes = privateAttributes)
         c.seeSender = { body ->
             val root = json.parseToJsonElement(String(body)).jsonObject
             for (e in root["events"]!!.jsonArray) sent.add(e.jsonObject)
@@ -136,7 +136,7 @@ class SeeTest {
     @Test
     fun testModeIsNoop() {
         val sent = mutableListOf<ByteArray>()
-        val c = Client.forTesting()
+        val c = Engine.forTesting()
         c.seeSender = { sent.add(it) }
         c.see(RuntimeException("x")).causesThe("checkout").to("use cached prices")
         assertTrue(sent.isEmpty())
@@ -145,7 +145,7 @@ class SeeTest {
     @Test
     fun globalSeeUsesLastConstructedClient() {
         val sent = mutableListOf<JsonObject>()
-        val c = Client("srv_key", baseUrl = "https://e.x")
+        val c = Engine("srv_key", baseUrl = "https://e.x")
         c.seeSender = { body ->
             for (e in json.parseToJsonElement(String(body)).jsonObject["events"]!!.jsonArray) {
                 sent.add(e.jsonObject)

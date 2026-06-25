@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.8.0 (2026-06-25)
+
+- **BREAKING — `configure()` + user-bound `Client(user)`.** Two-part front door,
+  identical across every Shipeasy SDK:
+  - The heavyweight class `Client` (HTTP, blob cache, poll timer, overrides,
+    telemetry, `see()`) is **renamed to `Engine`**. All factories keep the same
+    names on the new type: `Engine.forTesting()`, `Engine.fromSnapshot(...)`,
+    `Engine.fromFile(...)`, plus `overrideFlag/Config/Experiment`, `init`,
+    `initOnce`, `track`, `getKillswitch`, `see`, sticky/private-attribute support.
+  - New package-level `configure(apiKey, attributes? = null, …engineOpts): Engine`
+    builds ONE process-global `Engine` (first-config-wins), registers an optional
+    `attributes` transform (`(yourUser) -> Map<String, Any?>`; default identity),
+    and kicks off the engine's one-shot fetch fire-and-forget. Long-running
+    servers can call `configure(...).init()` to also start the background poll.
+  - New lightweight `class Client(user: Any?)` — the user-bound handle. It reads
+    the global engine (throws `IllegalStateException` if `configure()` was never
+    called), runs the `attributes` transform on `user` once at construction,
+    merges the request-scoped `__se_anon_id` (same as the per-call path), and
+    exposes **no-user-arg** methods: `getFlag(name[, default])`,
+    `getFlagDetail(name)`, `getConfig(name[, default])`,
+    `getExperiment(name, defaultParams)`, `getKillswitch(name[, switchKey])`. It
+    is cheap — it delegates to the engine and never opens its own connection.
+  - End-state call: `Client(user).getFlag("name")`.
+  - The package-level `see()`/`seeViolation()`/`controlFlowException()`
+    default-engine wiring now hooks off `Engine` construction / `configure()` —
+    the lightweight `Client` does NOT register as the see() default.
+  - **Migration:** rename your `Client(apiKey = …)` to `Engine(apiKey = …)` (or
+    switch to `configure(apiKey = …)`), and use the new `Client(user)` for
+    per-request evaluation. `Engine.getKillswitch(name, switchKey?)` is new
+    (reads the `killswitches` blob).
+
 ## 0.7.0 (2026-06-20)
 
 - **SSR bootstrap script-tag helpers.** New `Client.evaluate(user)`

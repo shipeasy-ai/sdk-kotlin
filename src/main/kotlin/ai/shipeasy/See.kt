@@ -32,7 +32,7 @@ import java.util.logging.Logger
  */
 
 /** The single runtime source of `sdk_version` on every see() wire event. */
-const val VERSION: String = "0.6.0"
+const val VERSION: String = "0.8.0"
 
 // ---- Limits (mirror core.ts; kept in sync with the worker's /collect) ----
 internal const val SEE_MAX_MESSAGE = 500
@@ -277,30 +277,31 @@ class ControlFlowTail internal constructor(private val err: Throwable, private v
     }
 }
 
-// ---- Global default client ----
+// ---- Global default engine ----
 
 @Volatile
-private var defaultClient: Client? = null
+private var defaultClient: Engine? = null
 
 /**
- * Register the client backing the package-level [see]/[seeViolation]/
- * [controlFlowException] functions. Called automatically when a [Client] is
+ * Register the [Engine] backing the package-level [see]/[seeViolation]/
+ * [controlFlowException] functions. Called automatically when an [Engine] is
  * constructed (last constructed wins — the server-SDK analog of TS's
- * `shipeasy({key})` configure).
+ * `shipeasy({key})` configure). The lightweight user-bound [Client] does NOT
+ * register here — only the heavyweight engine does.
  */
-fun setDefaultClient(client: Client?) {
+fun setDefaultClient(client: Engine?) {
     defaultClient = client
 }
 
 /**
- * Report a caught throwable (or thrown non-throwable) via the default client.
- * Use `client.see()` to target a specific client. Calling this before any client
+ * Report a caught throwable (or thrown non-throwable) via the default engine.
+ * Use `engine.see()` to target a specific engine. Calling this before any engine
  * exists logs a warning and returns a no-op chain (never throws).
  */
 fun see(problem: Any?): SeeChain {
     val c = defaultClient
     if (c == null) {
-        seeLog.warning("see() called before a client was created — error dropped")
+        seeLog.warning("see() called before configure()/an Engine was created — error dropped")
         return SeeChain(problem) { }
     }
     return c.see(problem)
@@ -310,7 +311,7 @@ fun see(problem: Any?): SeeChain {
 fun seeViolation(name: String): SeeChain {
     val c = defaultClient
     if (c == null) {
-        seeLog.warning("seeViolation() called before a client was created — error dropped")
+        seeLog.warning("seeViolation() called before configure()/an Engine was created — error dropped")
         return SeeChain(Violation(name)) { }
     }
     return c.seeViolation(name)

@@ -3,21 +3,72 @@
 Server SDK for [Shipeasy](https://shipeasy.dev). JVM/Android-compatible.
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.3.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.8.0")
 ```
+
+## Quickstart — `configure()` once, then `Client(user)`
+
+Configure the SDK once at app boot, then evaluate per user/request with a
+lightweight `Client(user)`. The bound `Client` takes **no user argument** on its
+methods — the user is bound at construction.
 
 ```kotlin
+import ai.shipeasy.configure
 import ai.shipeasy.Client
 
-val c = Client(apiKey = System.getenv("SHIPEASY_SERVER_KEY"))
-runBlocking { c.init() }
+// Once, at boot. `attributes` maps YOUR user object into the targeting bag every
+// evaluation reads; omit it when you already pass a plain attribute map.
+configure(
+    apiKey = System.getenv("SHIPEASY_SERVER_KEY"),
+    attributes = { u -> mapOf("user_id" to (u as MyUser).id, "plan" to u.plan) },
+)
 
-c.getFlag("new_checkout", mapOf("user_id" to "u_123"))
-c.getConfig("billing_copy")
-val r = c.getExperiment("checkout_button", mapOf("user_id" to "u_123"), mapOf("color" to "blue"))
-c.track("u_123", "purchase", mapOf("amount" to 49))
-c.close()
+// Per request — cheap; delegates to the engine, no own connection/poll.
+val flags = Client(currentUser)
+flags.getFlag("new_checkout")                                   // → Boolean
+flags.getConfig("billing_copy")
+val r = flags.getExperiment("checkout_button", mapOf("color" to "blue"))
+flags.getKillswitch("payments")
 ```
+
+With no `attributes` transform, the user object IS the attribute map:
+
+```kotlin
+configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"))
+Client(mapOf("user_id" to "u_123", "plan" to "pro")).getFlag("new_checkout")
+```
+
+For a long-running server that should also poll for updates in the background,
+start the engine returned by `configure`:
+
+```kotlin
+runBlocking { configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY")).init() }
+```
+
+## The `Engine` (advanced / direct use)
+
+`configure()` builds and returns an `Engine` — the heavyweight client that owns
+the HTTP connection, the cached blobs, the poll timer, overrides, telemetry, and
+`see()` error reporting. You can also construct one directly when you need an
+explicit instance (e.g. multiple keys, tests, or the per-call `user` form):
+
+```kotlin
+import ai.shipeasy.Engine
+
+val engine = Engine(apiKey = System.getenv("SHIPEASY_SERVER_KEY"))
+runBlocking { engine.init() }
+
+engine.getFlag("new_checkout", mapOf("user_id" to "u_123"))     // per-call user arg
+engine.getConfig("billing_copy")
+val r = engine.getExperiment("checkout_button", mapOf("user_id" to "u_123"), mapOf("color" to "blue"))
+engine.track("u_123", "purchase", mapOf("amount" to 49))
+engine.close()
+```
+
+> **Renamed in 0.8.0 (BREAKING):** the heavyweight class formerly called `Client`
+> is now `Engine`. The name `Client` is now the lightweight user-bound handle
+> shown above. Replace `Client(apiKey = …)` with `Engine(apiKey = …)` (or switch
+> to `configure(...)`).
 
 ## Server-side rendering (SSR)
 
@@ -111,7 +162,7 @@ apply on top.
 
 ```kotlin
 // From the two wire bodies directly:
-val c = Client.fromSnapshot(
+val c = Engine.fromSnapshot(
     flags = mapOf("gates" to /* … body of GET /sdk/flags */),
     experiments = mapOf("experiments" to /* … body of GET /sdk/experiments */),
 )
@@ -119,7 +170,7 @@ c.getFlag("new_checkout", mapOf("user_id" to "u_123"))
 
 // Or from a JSON file shaped like
 //   { "flags": <GET /sdk/flags body>, "experiments": <GET /sdk/experiments body> }
-val c2 = Client.fromFile("/path/to/snapshot.json")
+val c2 = Engine.fromFile("/path/to/snapshot.json")
 ```
 
 ## Anonymous visitors (zero-config bucketing)
@@ -152,16 +203,16 @@ see `18-identity-bucketing.md`.
 ## Testing
 
 In unit tests you usually don't want the SDK to hit the network or read live
-flag state. `Client.forTesting()` returns a ready-to-use client that does **zero
+flag state. `Engine.forTesting()` returns a ready-to-use engine that does **zero
 network**: telemetry is off, `init()`/`initOnce()` and `track()` are no-ops, and
 no API key is required. Seed exactly the values your test needs with the
 `override*` setters — an override always wins over fetched state, so the same
-setters also work on a normal client to force a value locally.
+setters also work on a normal engine to force a value locally.
 
 ```kotlin
-import ai.shipeasy.Client
+import ai.shipeasy.Engine
 
-val c = Client.forTesting()
+val c = Engine.forTesting()
 
 // Flags
 c.overrideFlag("new_checkout", true)
@@ -190,8 +241,12 @@ config reads `null`, and an experiment reads not-in-experiment. The client is
 `AutoCloseable`, so wrap it in `use { }` to clean up after the test:
 
 ```kotlin
-Client.forTesting().use { c ->
+Engine.forTesting().use { c ->
     c.overrideFlag("new_checkout", true)
     assertTrue(c.getFlag("new_checkout", emptyMap()))
 }
 ```
+
+To test code that uses the bound `Client(user)`, point the global engine at a
+test/snapshot engine with `configure(...)` (or the offline factories) at setup,
+then construct `Client(user)` as usual.

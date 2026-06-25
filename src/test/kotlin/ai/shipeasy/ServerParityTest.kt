@@ -45,15 +45,15 @@ class ServerParityTest {
     // because stripPrivate is a private boundary helper (track()'s only egress is
     // the network).
     @Suppress("UNCHECKED_CAST")
-    private fun strip(client: Client, props: Map<String, Any?>?): Map<String, Any?>? {
-        val m = Client::class.java.getDeclaredMethod("stripPrivate", Map::class.java)
+    private fun strip(client: Engine, props: Map<String, Any?>?): Map<String, Any?>? {
+        val m = Engine::class.java.getDeclaredMethod("stripPrivate", Map::class.java)
         m.isAccessible = true
         return m.invoke(client, props) as Map<String, Any?>?
     }
 
     @Test
     fun privateAttributesStrippedFromTrackProps() {
-        Client(apiKey = "", disableTelemetry = true, privateAttributes = listOf("email", "ssn"), localMode = true).use { c ->
+        Engine(apiKey = "", disableTelemetry = true, privateAttributes = listOf("email", "ssn"), localMode = true).use { c ->
             val out = strip(c, mapOf("email" to "a@b.com", "ssn" to "123", "plan" to "pro"))
             assertEquals(mapOf("plan" to "pro"), out)
         }
@@ -61,7 +61,7 @@ class ServerParityTest {
 
     @Test
     fun noPrivateAttributesIsPassThrough() {
-        Client(apiKey = "", disableTelemetry = true, localMode = true).use { c ->
+        Engine(apiKey = "", disableTelemetry = true, localMode = true).use { c ->
             val props = mapOf("email" to "a@b.com", "plan" to "pro")
             assertEquals(props, strip(c, props))
             assertNull(strip(c, null))
@@ -70,7 +70,7 @@ class ServerParityTest {
 
     @Test
     fun privateAttributesLeaveNonPrivatePropsAndNullProps() {
-        Client(apiKey = "", disableTelemetry = true, privateAttributes = listOf("email"), localMode = true).use { c ->
+        Engine(apiKey = "", disableTelemetry = true, privateAttributes = listOf("email"), localMode = true).use { c ->
             // null props remain null (nothing to strip)
             assertNull(strip(c, null))
             // a bag without any private key is unchanged
@@ -82,7 +82,7 @@ class ServerParityTest {
     fun trackIsNoOpInLocalMode() {
         // localMode track() must never reach the network — assert it does not throw
         // even though no server exists.
-        Client.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
             c.track("u1", "purchase", mapOf("email" to "a@b.com", "amount" to 10))
         }
     }
@@ -92,7 +92,7 @@ class ServerParityTest {
     @Test
     fun logExposureNoOpWhenNotEnrolled() {
         // allocation 0% ⇒ nobody enrolled ⇒ logExposure is a no-op (no throw).
-        Client.fromSnapshot(emptyFlags(), expsBlob(mapOf("allocationPct" to 0))).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob(mapOf("allocationPct" to 0))).use { c ->
             assertFalse(c.getExperiment("exp", mapOf("user_id" to "u1"), null).inExperiment)
             c.logExposure("u1", "exp") // no enrolment → no-op, must not throw
         }
@@ -102,7 +102,7 @@ class ServerParityTest {
     fun logExposureNoOpInLocalMode() {
         // fromSnapshot is localMode: enrolled, but logExposure must still no-op on
         // the network (no throw).
-        Client.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
             assertTrue(c.getExperiment("exp", mapOf("user_id" to "u1"), null).inExperiment)
             c.logExposure("u1", "exp")
         }
@@ -110,7 +110,7 @@ class ServerParityTest {
 
     @Test
     fun logExposureNoOpForUnknownExperiment() {
-        Client.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
             c.logExposure("u1", "does_not_exist") // not enrolled → no-op
         }
     }
@@ -119,7 +119,7 @@ class ServerParityTest {
 
     @Test
     fun noStoreIsDeterministic() {
-        Client.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
             val a = c.getExperiment("exp", mapOf("user_id" to "u1"), null)
             val b = c.getExperiment("exp", mapOf("user_id" to "u1"), null)
             assertEquals(a.group, b.group)
@@ -129,7 +129,7 @@ class ServerParityTest {
     @Test
     fun freshPickIsPersisted() {
         val store = InMemoryStickyStore()
-        Client.fromSnapshot(emptyFlags(), expsBlob(), store).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob(), store).use { c ->
             val r = c.getExperiment("exp", mapOf("user_id" to "u1"), null)
             assertTrue(r.inExperiment)
             val entry = store.get("u1")?.get("exp")
@@ -142,7 +142,7 @@ class ServerParityTest {
     @Test
     fun weightChangeKeepsStickiedUserInOriginalGroup() {
         val store = InMemoryStickyStore()
-        val original = Client.fromSnapshot(emptyFlags(), expsBlob(), store).use {
+        val original = Engine.fromSnapshot(emptyFlags(), expsBlob(), store).use {
             it.getExperiment("exp", mapOf("user_id" to "u1"), null).group
         }
         // Reweight so the deterministic pick would flip; the stickied user stays.
@@ -154,7 +154,7 @@ class ServerParityTest {
                 ),
             ),
         )
-        Client.fromSnapshot(emptyFlags(), reweighted, store).use { c ->
+        Engine.fromSnapshot(emptyFlags(), reweighted, store).use { c ->
             assertEquals(original, c.getExperiment("exp", mapOf("user_id" to "u1"), null).group)
         }
     }
@@ -162,11 +162,11 @@ class ServerParityTest {
     @Test
     fun allocationShrinkKeepsEnrolledButDeniesNew() {
         val store = InMemoryStickyStore()
-        Client.fromSnapshot(emptyFlags(), expsBlob(), store).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob(), store).use { c ->
             assertTrue(c.getExperiment("exp", mapOf("user_id" to "u1"), null).inExperiment)
         }
         val shrunk = expsBlob(mapOf("allocationPct" to 0))
-        Client.fromSnapshot(emptyFlags(), shrunk, store).use { c ->
+        Engine.fromSnapshot(emptyFlags(), shrunk, store).use { c ->
             // already-stickied unit stays in even at 0% allocation
             assertTrue(c.getExperiment("exp", mapOf("user_id" to "u1"), null).inExperiment)
             // a brand-new unit is denied
@@ -177,12 +177,12 @@ class ServerParityTest {
     @Test
     fun saltChangeReshufflesStoredPrefix() {
         val store = InMemoryStickyStore()
-        Client.fromSnapshot(emptyFlags(), expsBlob(), store).use {
+        Engine.fromSnapshot(emptyFlags(), expsBlob(), store).use {
             it.getExperiment("exp", mapOf("user_id" to "u1"), null)
         }
         assertEquals("salt_abc", store.get("u1")?.get("exp")?.salt8)
 
-        Client.fromSnapshot(emptyFlags(), expsBlob(mapOf("salt" to "zzzz_newsalt")), store).use {
+        Engine.fromSnapshot(emptyFlags(), expsBlob(mapOf("salt" to "zzzz_newsalt")), store).use {
             it.getExperiment("exp", mapOf("user_id" to "u1"), null)
         }
         assertEquals("zzzz_new", store.get("u1")?.get("exp")?.salt8)
@@ -194,7 +194,7 @@ class ServerParityTest {
         // CURRENT salt8 → must fall through to a real re-bucket (an existing group)
         // rather than returning the stale group.
         val store = InMemoryStickyStore(mapOf("u1" to mapOf("exp" to StickyEntry("ghost", "salt_abc"))))
-        Client.fromSnapshot(emptyFlags(), expsBlob(), store).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob(), store).use { c ->
             val r = c.getExperiment("exp", mapOf("user_id" to "u1"), null)
             assertTrue(r.inExperiment)
             assertTrue(r.group == "control" || r.group == "treatment")
@@ -207,7 +207,7 @@ class ServerParityTest {
     fun staleSaltEntryIsIgnoredAndOverwritten() {
         // A store entry with a stale salt8 must be ignored (re-bucket + overwrite).
         val store = InMemoryStickyStore(mapOf("u1" to mapOf("exp" to StickyEntry("treatment", "OLDSALT8"))))
-        Client.fromSnapshot(emptyFlags(), expsBlob(), store).use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob(), store).use { c ->
             c.getExperiment("exp", mapOf("user_id" to "u1"), null)
             assertEquals("salt_abc", store.get("u1")?.get("exp")?.salt8)
         }

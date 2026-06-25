@@ -31,13 +31,13 @@ class ParityTest {
     @Test
     fun getFlagDefaultOnlyOnNotFoundOrNotReady() {
         // not initialized → CLIENT_NOT_READY → default returned
-        Client(apiKey = "", disableTelemetry = true, localMode = true).use { c ->
+        Engine(apiKey = "", disableTelemetry = true, localMode = true).use { c ->
             // localMode but NOT marked initialized: blob is null → CLIENT_NOT_READY
             assertTrue(c.getFlag("missing", mapOf("user_id" to "u1"), default = true))
             assertFalse(c.getFlag("missing", mapOf("user_id" to "u1"), default = false))
         }
 
-        Client.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
+        Engine.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
             // not-found → default returned
             assertTrue(c.getFlag("nope", mapOf("user_id" to "u1"), default = true))
             // present + evaluates false (disabled) → default NOT used, real false
@@ -53,7 +53,7 @@ class ParityTest {
     // override still honoured over the default.
     @Test
     fun getConfigDefault() {
-        Client.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
+        Engine.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
             assertEquals("fallback", c.getConfig("nope", default = "fallback"))
             assertEquals("Pay now", c.getConfig("billing_copy", default = "fallback"))
             // no-arg / no-default still null for missing
@@ -69,13 +69,13 @@ class ParityTest {
     @Test
     fun flagDetailReasons() {
         // CLIENT_NOT_READY: localMode client never seeded with a blob
-        Client(apiKey = "", disableTelemetry = true, localMode = true).use { c ->
+        Engine(apiKey = "", disableTelemetry = true, localMode = true).use { c ->
             val d = c.getFlagDetail("anything", mapOf("user_id" to "u1"))
             assertEquals(Reason.CLIENT_NOT_READY, d.reason)
             assertFalse(d.value)
         }
 
-        Client.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
+        Engine.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
             // FLAG_NOT_FOUND
             val nf = c.getFlagDetail("nope", mapOf("user_id" to "u1"))
             assertEquals(Reason.FLAG_NOT_FOUND, nf.reason)
@@ -110,7 +110,7 @@ class ParityTest {
                 "ramp" to mapOf("enabled" to true, "rolloutPct" to 0, "salt" to ""),
             ),
         )
-        Client.fromSnapshot(blob, emptyMap()).use { c ->
+        Engine.fromSnapshot(blob, emptyMap()).use { c ->
             val d = c.getFlagDetail("ramp", mapOf("user_id" to "u1"))
             assertEquals(Reason.DEFAULT, d.reason)
             assertFalse(d.value)
@@ -122,7 +122,7 @@ class ParityTest {
     // Listener fires when new data is applied; unsubscribe stops it.
     @Test
     fun onChangeFiresAndUnsubscribes() {
-        Client.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
+        Engine.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
             var hits = 0
             val unsub = c.onChange { hits++ }
 
@@ -141,7 +141,7 @@ class ParityTest {
     // A throwing listener does not break notification of the others.
     @Test
     fun onChangeListenerThrowIsIsolated() {
-        Client.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
+        Engine.fromSnapshot(gatesBlob(), emptyMap()).use { c ->
             var good = 0
             c.onChange { throw RuntimeException("boom") }
             c.onChange { good++ }
@@ -162,7 +162,7 @@ class ParityTest {
                 "limits" to mapOf("value" to mapOf("max" to 5L)),
             ),
         )
-        Client.fromSnapshot(flags, emptyMap()).use { c ->
+        Engine.fromSnapshot(flags, emptyMap()).use { c ->
             // real eval against the seeded blob — no network, no init() needed
             assertTrue(c.getFlag("new_checkout", mapOf("user_id" to "u_123")))
             assertEquals(mapOf("max" to 5L), c.getConfig("limits"))

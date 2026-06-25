@@ -36,7 +36,7 @@ object AnonId {
 
     /**
      * The anon id [AnonIdFilter] resolved for the current request, or null when
-     * no filter ran. [Client.getFlag]/[Client.getExperiment] fall back to this
+     * no filter ran. [Engine.getFlag]/[Engine.getExperiment] fall back to this
      * as the default `anonymous_id`.
      */
     fun current(): String? = currentId.get()

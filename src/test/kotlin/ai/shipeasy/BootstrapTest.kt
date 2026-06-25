@@ -9,7 +9,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BootstrapTest {
-    private fun client(): Client = Client.fromSnapshot(
+    private fun client(): Engine = Engine.fromSnapshot(
         flags = mapOf(
             "gates" to mapOf(
                 "new_ui" to mapOf("enabled" to true, "rolloutPct" to 10000, "salt" to "s"),
