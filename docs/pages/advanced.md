@@ -61,10 +61,12 @@ see `18-identity-bucketing.md`.
 ## Manual exposure
 
 The server is stateless and never auto-logs. Call `logExposure` where you
-present the treatment:
+present the treatment. The bound `Client` form derives the unit from the bound
+user:
 
 ```kotlin
-engine.logExposure("u_123", "checkout_button")
+flags.logExposure("checkout_button")          // bound Client (preferred)
+engine.logExposure("u_123", "checkout_button") // low-level, per-call user
 ```
 
 See [Experiments](experiments.md).

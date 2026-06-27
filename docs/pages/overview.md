@@ -30,7 +30,7 @@ transform you register at configure time) is bound when you construct the
 | Type | What it is | When you use it |
 | ---- | ---------- | --------------- |
 | **`Engine`** | Heavyweight: owns the API key, HTTP client, cached blobs, the poll timer, local overrides, telemetry and `see()`. One per process. | Built for you by `configure()`. Construct directly only for multiple keys, tests, the per-call `user` form, or offline snapshots. |
-| **`Client(user)`** | Lightweight user-bound handle. No own connection. | Per request / per user — the everyday evaluation surface. |
+| **`Client(user)`** | Lightweight user-bound handle. No own connection. Evaluates flags/configs/experiments and records the conversion it measures — `track` / `logExposure` derive the unit from the bound user. | Per request / per user — the everyday evaluation surface. Experiments are end-to-end Client-only. |
 
 > **Renamed in 0.8.0 (BREAKING):** the heavyweight class formerly called `Client`
 > is now `Engine`. `Client` is now the bound handle. Replace
@@ -43,7 +43,7 @@ transform you register at configure time) is bound when you construct the
 - [Flags](flags.md) — `getFlag` / `getFlagDetail`.
 - [Configs](configs.md) — `getConfig`.
 - [Kill switches](killswitches.md) — `getKillswitch`.
-- [Experiments](experiments.md) — `getExperiment`, `ExperimentResult`, `track`.
+- [Experiments](experiments.md) — `getExperiment`, `ExperimentResult`, `track`, `logExposure`.
 - [i18n](i18n.md) — SSR bootstrap + the client-side translation story.
 - [Error reporting](error-reporting.md) — `see()` structured error reporting.
 - [Testing](testing.md) — `Engine.forTesting()` + `override*`, offline snapshots.

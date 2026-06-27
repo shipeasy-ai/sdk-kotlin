@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 (2026-06-27)
+
+- Add `track()`/`logExposure()` to the bound `Client` (experiments are now
+  end-to-end Client-only; the `Engine` forms remain for advanced use).
+  - `Client.track(event: String, props: Map<String, Any?> = emptyMap())` —
+    derives the unit from the bound attribute bag (`user_id`, else
+    `anonymous_id`) and forwards to `Engine.track`; a no-op when the bag carries
+    no unit.
+  - `Client.logExposure(experiment: String)` — same unit derivation; forwards to
+    `Engine.logExposure`, which re-evaluates and only emits when the user is
+    enrolled.
+
 ## 0.8.0 (2026-06-25)
 
 - **BREAKING — `configure()` + user-bound `Client(user)`.** Two-part front door,

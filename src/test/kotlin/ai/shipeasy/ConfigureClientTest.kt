@@ -137,5 +137,87 @@ class ConfigureClientTest {
         assertFalse(c.getKillswitch("absent"))
     }
 
+    @Test
+    fun boundClientTrackForwardsBoundUserId() {
+        // Non-localMode engine so track() reaches eventSender; capture the wire body.
+        val sent = captureEvents { engine ->
+            installEngineForTests(engine)
+            Client(mapOf("user_id" to "u_77", "plan" to "pro")).track("checkout", mapOf("amount" to 9))
+        }
+        val ev = sent.single()
+        assertEquals("metric", ev["type"])
+        assertEquals("checkout", ev["event_name"])
+        assertEquals("u_77", ev["user_id"])
+        @Suppress("UNCHECKED_CAST")
+        assertEquals(mapOf("amount" to 9.0), (ev["properties"] as Map<String, Any?>))
+    }
+
+    @Test
+    fun boundClientTrackFallsBackToAnonymousId() {
+        val sent = captureEvents { engine ->
+            installEngineForTests(engine)
+            Client(mapOf("anonymous_id" to "anon_5")).track("view")
+        }
+        assertEquals("anon_5", sent.single()["user_id"])
+    }
+
+    @Test
+    fun boundClientTrackNoOpsWithoutUnit() {
+        val sent = captureEvents { engine ->
+            installEngineForTests(engine)
+            Client(mapOf("plan" to "pro")).track("view") // no user_id / anonymous_id
+        }
+        assertTrue(sent.isEmpty())
+    }
+
+    @Test
+    fun boundClientLogExposureForwardsBoundUserId() {
+        // logExposure re-evaluates the experiment for the derived id; an override
+        // makes the user "enrolled" so the exposure event fires.
+        val sent = captureEvents { engine ->
+            engine.overrideExperiment("price_test", group = "treatment", params = null)
+            installEngineForTests(engine)
+            Client(mapOf("user_id" to "u_9")).logExposure("price_test")
+        }
+        val ev = sent.single()
+        assertEquals("exposure", ev["type"])
+        assertEquals("price_test", ev["experiment"])
+        assertEquals("treatment", ev["group"])
+        assertEquals("u_9", ev["user_id"])
+    }
+
+    // ---- helpers ----
+
+    // Build a non-localMode engine, install a capturing eventSender, run [body],
+    // and return the captured /collect events. Telemetry disabled (no per-eval beacon).
+    private fun captureEvents(body: (Engine) -> Unit): List<Map<String, Any?>> {
+        val sent = mutableListOf<Map<String, Any?>>()
+        val engine = Engine("srv_key", baseUrl = "https://e.x", disableTelemetry = true)
+            .also { it.initialized = true }
+        engine.eventSender = { wire -> parseEvents(wire, sent) }
+        body(engine)
+        return sent
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseEvents(wire: ByteArray, into: MutableList<Map<String, Any?>>) {
+        val root = parseJson(String(wire)) as Map<String, Any?>
+        for (e in root["events"] as List<*>) into.add(e as Map<String, Any?>)
+    }
+
+    private fun parseJson(s: String): Any? {
+        val el = kotlinx.serialization.json.Json.parseToJsonElement(s)
+        return jsonToAny(el)
+    }
+
+    private fun jsonToAny(e: kotlinx.serialization.json.JsonElement): Any? = when (e) {
+        is kotlinx.serialization.json.JsonNull -> null
+        is kotlinx.serialization.json.JsonObject -> e.mapValues { jsonToAny(it.value) }
+        is kotlinx.serialization.json.JsonArray -> e.map { jsonToAny(it) }
+        is kotlinx.serialization.json.JsonPrimitive ->
+            if (e.isString) e.content
+            else e.content.toBooleanStrictOrNull() ?: e.content.toDoubleOrNull() ?: e.content
+    }
+
     private data class RawUser(val id: String, val plan: String)
 }

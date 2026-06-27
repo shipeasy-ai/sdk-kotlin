@@ -173,6 +173,35 @@ class Client(user: Any?) {
     fun getKillswitch(name: String, switchKey: String? = null): Boolean =
         engine.getKillswitch(name, switchKey)
 
+    /**
+     * Record a conversion/metric event for the bound user. The unit is derived
+     * from the bound attribute bag (`user_id`, else `anonymous_id`); no user arg.
+     * Fire-and-forget — forwards to [Engine.track]. A no-op when the bound bag
+     * carries no unit. This is the primary path: a single [Client] now covers
+     * `getExperiment` AND the conversion it measures.
+     */
+    @JvmOverloads
+    fun track(event: String, props: Map<String, Any?> = emptyMap()) {
+        val id = boundUnitId() ?: return
+        engine.track(id, event, props)
+    }
+
+    /**
+     * Emit an exposure event for [experiment] for the bound user (parity with the
+     * browser's auto-exposure). The unit is derived from the bound attribute bag;
+     * no user arg. Forwards to [Engine.logExposure], which re-evaluates and only
+     * emits when the user is enrolled. A no-op when the bound bag carries no unit.
+     */
+    fun logExposure(experiment: String) {
+        val id = boundUnitId() ?: return
+        engine.logExposure(id, experiment)
+    }
+
+    /** The bound user's unit: `user_id` if present, else `anonymous_id`, else null. */
+    private fun boundUnitId(): String? =
+        attributes["user_id"]?.toString()?.takeIf { it.isNotEmpty() }
+            ?: attributes["anonymous_id"]?.toString()?.takeIf { it.isNotEmpty() }
+
     private companion object {
         // Mirror Engine.withAnonId: default anonymous_id to the request's
         // __se_anon_id when the caller supplied no explicit unit. A caller-supplied

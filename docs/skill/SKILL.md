@@ -11,7 +11,7 @@ switches and experiments **locally** against rule blobs fetched from the edge.
 ## Install
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.8.0")   // JDK 17+
+implementation("ai.shipeasy:shipeasy-kotlin:0.9.0")   // JDK 17+
 ```
 
 ## Configure once, evaluate per user
@@ -32,9 +32,13 @@ flags.getFlag("new_checkout")                       // → Boolean (default=fals
 flags.getConfig("billing_copy", default = "Pay")    // → Any?
 flags.getKillswitch("payments")                     // → true means killed
 val r = flags.getExperiment("checkout_button", mapOf("color" to "blue"))
+flags.track("purchase", mapOf("amount" to 49))      // conversion (unit from bound bag)
+flags.logExposure("checkout_button")                // manual exposure for the bound user
 ```
 
-With no `attributes` transform, a `Map` user IS the attribute bag:
+The bound `Client` covers the whole experiment loop — `getExperiment` AND the
+`track`/`logExposure` it measures derive the unit from the bound user (no user
+arg). With no `attributes` transform, a `Map` user IS the attribute bag:
 `Client(mapOf("user_id" to "u_123", "plan" to "pro")).getFlag("new_checkout")`.
 
 For background polling on a long-running server:
@@ -50,8 +54,8 @@ import ai.shipeasy.Engine
 val engine = Engine(apiKey = key)
 runBlocking { engine.init() }
 engine.getFlag("new_checkout", mapOf("user_id" to "u_123"))
-engine.track("u_123", "purchase", mapOf("amount" to 49))   // experiment conversion
-engine.logExposure("u_123", "checkout_button")             // manual exposure
+engine.track("u_123", "purchase", mapOf("amount" to 49))   // low-level conversion (explicit user)
+engine.logExposure("u_123", "checkout_button")             // low-level manual exposure
 engine.close()
 ```
 

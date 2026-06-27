@@ -104,6 +104,16 @@ class Engine(
         }
     }
 
+    // Injectable seam for the track()/logExposure() /collect POST. Mirrors
+    // [seeSender]: default is a fire-and-forget POST on the IO scope; tests
+    // install a capturing lambda to read the wire body synchronously.
+    internal var eventSender: (ByteArray) -> Unit = { body ->
+        scope.launch {
+            runCatching { post("/collect", body) }
+                .onFailure { log.warning("event send failed: ${it.message}") }
+        }
+    }
+
     // Per-evaluation usage telemetry. ON by default; pass disableTelemetry = true
     // to opt out. Always off in localMode (an empty key disables it too). See
     // Telemetry.kt.
@@ -405,10 +415,7 @@ class Engine(
             if (!safeProps.isNullOrEmpty()) put("properties", safeProps)
         }
         val body = mapOf("events" to listOf(event))
-        scope.launch {
-            runCatching { post("/collect", json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray()) }
-                .onFailure { log.warning("track failed: ${it.message}") }
-        }
+        eventSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
     }
 
     /**
@@ -429,10 +436,7 @@ class Engine(
             put("ts", Instant.now().toEpochMilli())
         }
         val body = mapOf("events" to listOf(event))
-        scope.launch {
-            runCatching { post("/collect", json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray()) }
-                .onFailure { log.warning("logExposure failed: ${it.message}") }
-        }
+        eventSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
     }
 
     // ---- see() structured error reporting ----

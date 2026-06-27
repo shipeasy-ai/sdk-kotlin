@@ -1,13 +1,15 @@
-Configure once, then read a feature gate with a bound `Client`.
+Read a feature gate with a bound `Client`. Assumes `configure()` ran at startup
+— see [Installation](../../pages/installation.md).
 
 ```kotlin
-import ai.shipeasy.configure
 import ai.shipeasy.Client
 
-configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"))
-
+// construct once per callsite (cheap; binds the user, no own connection/poll)
 val flags = Client(currentUser)
-if (flags.getFlag("{{RESOURCE_NAME}}")) {
+
+// getFlag(name, default = false): default is returned ONLY when the gate can't
+// be evaluated (client not ready / flag unknown) — never for a real `false`.
+if (flags.getFlag("{{RESOURCE_NAME}}", default = false)) {
     // gate is on for this user
 }
 ```

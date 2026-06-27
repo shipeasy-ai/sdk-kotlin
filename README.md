@@ -3,8 +3,12 @@
 Server SDK for [Shipeasy](https://shipeasy.dev). JVM/Android-compatible.
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.8.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.9.0")
 ```
+
+📖 **Documentation:** [Installation & configuration](docs/pages/installation.md)
+(Gradle/Maven coordinates, `configure()`, and Spring Boot / Ktor / Android
+wiring) · [full docs](docs/)
 
 ## Quickstart — `configure()` once, then `Client(user)`
 

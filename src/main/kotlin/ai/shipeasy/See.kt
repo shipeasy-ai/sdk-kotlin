@@ -32,7 +32,7 @@ import java.util.logging.Logger
  */
 
 /** The single runtime source of `sdk_version` on every see() wire event. */
-const val VERSION: String = "0.8.0"
+const val VERSION: String = "0.9.0"
 
 // ---- Limits (mirror core.ts; kept in sync with the worker's /collect) ----
 internal const val SEE_MAX_MESSAGE = 500
