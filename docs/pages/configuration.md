@@ -15,25 +15,27 @@ configure(
 )
 ```
 
-`configure()` builds the process-global `Engine` (HTTP client + blob cache +
-poll), registers the `attributes` transform, and **returns the `Engine`**. The
-**first call wins**; later calls return the existing engine and leave the
-transform untouched.
+`configure()` builds the process-global SDK state (HTTP client + blob cache +
+optional poll) and registers the `attributes` transform. The **first call
+wins**; later calls are ignored and leave the transform untouched, so configure
+exactly once.
 
-### Full signature
+### Options
 
-```kotlin
-fun configure(
-    apiKey: String,                              // server key — authenticates flags/experiments
-    attributes: AttributesFn? = null,            // your user object → attribute map
-    baseUrl: String? = null,                     // default https://edge.shipeasy.dev
-    env: String = "prod",                        // tags telemetry + see() events
-    disableTelemetry: Boolean = false,
-    telemetryUrl: String? = null,
-    privateAttributes: List<String> = emptyList(),
-    stickyStore: StickyBucketStore? = null,
-): Engine
-```
+| Parameter           | Default                       | What it does |
+| ------------------- | ----------------------------- | ------------ |
+| `apiKey`            | —                             | **SERVER** key — authenticates flags/experiments/SSR. |
+| `attributes`        | identity                      | Your user object → attribute map. Runs once per `Client(user)`. |
+| `baseUrl`           | `https://edge.shipeasy.dev`   | Edge API origin override. |
+| `env`               | `"prod"`                      | Tags telemetry + `see()` events. |
+| `disableTelemetry`  | `false`                       | Opt out of per-eval usage telemetry. |
+| `telemetryUrl`      | `null`                        | Override the telemetry beacon origin. |
+| `privateAttributes` | `[]`                          | Attrs usable for targeting but stripped from outbound payloads. |
+| `stickyStore`       | `null`                        | Lock a unit to its first-assigned variant. |
+| `poll`              | `false`                       | `true` → fetch once and keep polling; `false` → one-shot fetch. |
+
+The full options table with types lives on the [Installation](installation.md)
+page — that page is the canonical home for `configure()`.
 
 > **Use the SERVER key.** It authenticates flag, experiment and SSR evaluation
 > and must never reach the browser. The public *client* key is only used by the
@@ -59,40 +61,20 @@ When the bound attributes carry neither `user_id` nor `anonymous_id`, the SDK
 defaults `anonymous_id` to the request-scoped `__se_anon_id` cookie (resolved by
 `AnonIdFilter`, see [Advanced](advanced.md)). An explicit unit always wins.
 
-## init/poll vs one-shot
+## One-shot vs polling
 
-`configure()` kicks off a **fire-and-forget one-shot fetch** (`Engine.initOnce()`)
-so the first `Client(user).getFlag(...)` resolves against real rules without any
-explicit `init()`.
-
-For a long-running server that should also **poll** for updates in the
-background, start the returned engine:
+By default `configure()` fetches the rule blob **once** so the first
+`Client(user).getFlag(...)` resolves against real rules. For a long-running
+server that should also **poll** for updates in the background, pass
+`poll = true`:
 
 ```kotlin
-runBlocking { configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY")).init() }
+configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"), poll = true)
 ```
 
-`init()` does the first fetch then starts a background poll (interval driven by
-the server's `X-Poll-Interval` header, default 30s). `initOnce()` fetches once
-and never polls. Both are `suspend`.
-
-## Direct `Engine` construction
-
-For multiple keys, explicit instances or the per-call `user` form:
-
-```kotlin
-import ai.shipeasy.Engine
-
-val engine = Engine(apiKey = System.getenv("SHIPEASY_SERVER_KEY"))
-runBlocking { engine.init() }
-
-engine.getFlag("new_checkout", mapOf("user_id" to "u_123"))   // per-call user arg
-engine.close()
-```
-
-The last-constructed `Engine` also becomes the default backing the package-level
-`see()` functions. `Engine` is `AutoCloseable` — call `close()` (or `use { }`)
-to stop the poll.
+With `poll = true` the SDK does the first fetch then refreshes in the background
+(interval driven by the server's `X-Poll-Interval` header, default 30s).
+Register an [`onChange`](advanced.md) listener to react to each refresh.
 
 ## Environment variables
 

@@ -8,8 +8,8 @@ import ai.shipeasy.Client
 val flags = Client(currentUser)
 
 // getFlag(name, default = false): default is returned ONLY when the gate can't
-// be evaluated (client not ready / flag unknown) — never for a real `false`.
-if (flags.getFlag("{{RESOURCE_NAME}}", default = false)) {
+// be evaluated (SDK not ready / flag unknown) — never for a real `false`.
+if (flags.getFlag("{{FLAG_KEY}}", default = false)) {
     // gate is on for this user
 }
 ```

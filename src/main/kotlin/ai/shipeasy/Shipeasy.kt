@@ -75,6 +75,7 @@ fun configure(
     telemetryUrl: String? = null,
     privateAttributes: List<String> = emptyList(),
     stickyStore: StickyBucketStore? = null,
+    poll: Boolean = false,
 ): Engine {
     synchronized(configureLock) {
         globalEngine?.let { return it }
@@ -89,10 +90,11 @@ fun configure(
             stickyStore = stickyStore,
         )
         globalEngine = engine
-        // Kick off the one-shot fetch (no-op in localMode) so the first
-        // Client(user).getFlag(...) resolves against real rules.
+        // Fetch lifecycle owned by configure (the docs never tell a user to call
+        // init() themselves): poll → initial fetch + background refresh; default →
+        // one-shot fire-and-forget fetch (no-op in localMode).
         configureScope.launch {
-            runCatching { engine.initOnce() }
+            runCatching { if (poll) engine.init() else engine.initOnce() }
         }
         return engine
     }
@@ -214,3 +216,130 @@ class Client(user: Any?) {
         }
     }
 }
+
+// ---- Doc-23 configure() family + package-level helpers ----
+//
+// The documented surface is exactly configure() (+ these test/offline siblings)
+// and the bound Client(user); the heavyweight Engine stays public but
+// undocumented. These top-level funs let users avoid naming the Engine in tests,
+// overrides, change listeners, and SSR tags.
+
+/**
+ * REPLACE the global engine + transform. Unlike [configure] (first-config-wins),
+ * the configureFor* siblings replace so a test suite can reconfigure between
+ * cases. Closes the previous engine.
+ */
+private fun installReplace(engine: Engine, transform: AttributesFn?) {
+    synchronized(configureLock) {
+        globalEngine?.takeIf { it !== engine }?.close()
+        globalEngine = engine
+        attributesTransform = transform ?: identityAttributes
+    }
+}
+
+private fun applyOverrides(
+    engine: Engine,
+    flags: Map<String, Boolean>,
+    configs: Map<String, Any?>,
+    experiments: Map<String, Pair<String, Any?>>,
+) {
+    flags.forEach { (name, value) -> engine.overrideFlag(name, value) }
+    configs.forEach { (name, value) -> engine.overrideConfig(name, value) }
+    experiments.forEach { (name, spec) -> engine.overrideExperiment(name, spec.first, spec.second) }
+}
+
+/**
+ * Configure Shipeasy in **test mode** — a drop-in sibling of [configure] with no
+ * network, ever (no api key needed). Seed [flags] (`name to bool`), [configs]
+ * (`name to value`), [experiments] (`name to (group to params)`), then read them
+ * through the ordinary `Client(user)`. REPLACES any prior config so tests can
+ * reconfigure freely.
+ */
+@JvmOverloads
+fun configureForTesting(
+    attributes: AttributesFn? = null,
+    flags: Map<String, Boolean> = emptyMap(),
+    configs: Map<String, Any?> = emptyMap(),
+    experiments: Map<String, Pair<String, Any?>> = emptyMap(),
+): Engine {
+    val engine = Engine.forTesting()
+    applyOverrides(engine, flags, configs, experiments)
+    installReplace(engine, attributes)
+    return engine
+}
+
+/**
+ * Configure Shipeasy **offline** — evaluate the REAL rules from an in-memory
+ * [snapshot] (`mapOf("flags" to ..., "experiments" to ...)`) or a JSON [path],
+ * with no network. Optional [flags]/[configs]/[experiments] overrides layer on
+ * top. REPLACES any prior config.
+ */
+@JvmOverloads
+fun configureForOffline(
+    snapshot: Map<String, Any?>? = null,
+    path: String? = null,
+    attributes: AttributesFn? = null,
+    flags: Map<String, Boolean> = emptyMap(),
+    configs: Map<String, Any?> = emptyMap(),
+    experiments: Map<String, Pair<String, Any?>> = emptyMap(),
+): Engine {
+    @Suppress("UNCHECKED_CAST")
+    val engine = when {
+        path != null -> Engine.fromFile(path)
+        snapshot != null -> Engine.fromSnapshot(
+            (snapshot["flags"] as? Map<String, Any?>) ?: emptyMap(),
+            (snapshot["experiments"] as? Map<String, Any?>) ?: emptyMap(),
+        )
+        else -> throw IllegalArgumentException(
+            "configureForOffline requires either a snapshot or a path source")
+    }
+    applyOverrides(engine, flags, configs, experiments)
+    installReplace(engine, attributes)
+    return engine
+}
+
+private fun requireEngine(fn: String): Engine =
+    globalEngine ?: throw IllegalStateException(
+        "$fn(...) called before configure(...) (or a configureFor* sibling)")
+
+/**
+ * Force `getFlag(name)` to [value] on the spot, for the current configuration — a
+ * quick in-test override layered on top of whatever [configureForTesting] /
+ * [configureForOffline] (or [configure]) set up. Wins over the blob until
+ * [clearOverrides].
+ */
+fun overrideFlag(name: String, value: Boolean) = requireEngine("overrideFlag").overrideFlag(name, value)
+
+/** Force `getConfig(name)` to [value] on the spot (see [overrideFlag]). */
+fun overrideConfig(name: String, value: Any?) = requireEngine("overrideConfig").overrideConfig(name, value)
+
+/** Force `getExperiment(name)` to enrol in [group]/[params] on the spot (see [overrideFlag]). */
+fun overrideExperiment(name: String, group: String, params: Any?) =
+    requireEngine("overrideExperiment").overrideExperiment(name, group, params)
+
+/**
+ * Drop every on-the-spot flag/config/experiment override — INCLUDING the seed from
+ * [configureForTesting] (test mode has no blob beneath). Under [configureForOffline]
+ * evaluations revert to the snapshot.
+ */
+fun clearOverrides() = requireEngine("clearOverrides").clearOverrides()
+
+/**
+ * Register a listener fired after a background poll fetches NEW data. Returns an
+ * unsubscribe lambda. Requires `configure(..., poll = true)`.
+ */
+fun onChange(listener: () -> Unit): () -> Unit = requireEngine("onChange").onChange(listener)
+
+/** SSR bootstrap `<script>` tag for a request (no key embedded), via the configured global engine. */
+@JvmOverloads
+fun bootstrapScriptTag(
+    user: Map<String, Any?>,
+    anonId: String? = null,
+    i18nProfile: String = "en:prod",
+    baseUrl: String? = null,
+): String = requireEngine("bootstrapScriptTag").bootstrapScriptTag(user, anonId, i18nProfile, baseUrl)
+
+/** i18n loader `<script>` tag (public client key) for SSR, via the configured global engine. */
+@JvmOverloads
+fun i18nScriptTag(clientKey: String, profile: String = "en:prod", baseUrl: String? = null): String =
+    requireEngine("i18nScriptTag").i18nScriptTag(clientKey, profile, baseUrl)

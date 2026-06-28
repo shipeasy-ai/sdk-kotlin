@@ -15,26 +15,22 @@ if (flags.getKillswitch("payments")) {
 }
 ```
 
-## Per-switch override key
+## Named per-switch override key
 
 A kill switch can carry named per-key override **switches**. Pass `switchKey` to
-read one specific switch: `true` when that named override is on.
+read one specific named switch: `true` when that named override is on.
 
 ```kotlin
 flags.getKillswitch("payments", switchKey = "eu_region")   // → Boolean
 ```
 
-## Low-level `Engine` form
-
-`getKillswitch` is **not user-scoped** (it forwards directly):
-
-```kotlin
-engine.getKillswitch("payments")
-engine.getKillswitch("payments", switchKey = "eu_region")
-```
+If the named switch key isn't configured for this kill switch, the read **falls
+back to the kill switch's top-level value** (the plain `getKillswitch(name)`
+result).
 
 ## Semantics
 
 - Without `switchKey`: returns `true` when the whole kill switch is killed.
-- With `switchKey`: returns `true` when that specific per-key override switch is on.
-- Unknown kill switches / switches return `false`.
+- With `switchKey`: returns `true` when that specific per-key override switch is
+  on; an unconfigured key falls back to the top-level value.
+- Unknown kill switches return `false`.

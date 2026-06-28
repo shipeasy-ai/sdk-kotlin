@@ -3,7 +3,7 @@
 `getFlag(name)` returns a `Boolean` — whether the gate is **on** for the
 evaluated user.
 
-## Bound `Client` form (everyday)
+## Bound `Client` form
 
 ```kotlin
 val flags = Client(currentUser)
@@ -13,25 +13,17 @@ if (flags.getFlag("new_checkout")) {
 }
 ```
 
-## Low-level `Engine` form (per-call user)
-
-```kotlin
-engine.getFlag("new_checkout", mapOf("user_id" to "u_123"))   // → Boolean
-```
-
 ## Default / fallback
 
-Both forms accept an optional `default` (defaults to `false`). The default is
-returned **only** when the gate cannot be evaluated — the client isn't
-initialized yet, or the flag isn't present in the loaded blob. It is **never**
-returned for a flag that legitimately evaluates to `false`.
+`getFlag` accepts an optional `default` (defaults to `false`). The default is
+returned **only** when the gate cannot be evaluated — the SDK isn't initialized
+yet, or the flag isn't present in the loaded blob. It is **never** returned for a
+flag that legitimately evaluates to `false`.
 
 ```kotlin
-// returns `true` only if the client isn't ready / the flag is unknown;
+// returns `true` only if the SDK isn't ready / the flag is unknown;
 // a known flag that evaluates false still returns false
 flags.getFlag("new_checkout", default = true)
-
-engine.getFlag("new_checkout", mapOf("user_id" to "u_123"), default = true)
 ```
 
 ## `getFlagDetail` — value + reason
@@ -44,9 +36,6 @@ canonical evaluation is untouched.
 val d: FlagDetail = flags.getFlagDetail("new_checkout")
 d.value    // Boolean
 d.reason   // one of the Reason constants
-
-// Engine form:
-engine.getFlagDetail("new_checkout", mapOf("user_id" to "u_123"))
 ```
 
 `reason` is one of the `ai.shipeasy.Reason` constants:
@@ -54,7 +43,7 @@ engine.getFlagDetail("new_checkout", mapOf("user_id" to "u_123"))
 | `Reason` constant  | Meaning                                              |
 | ------------------ | ---------------------------------------------------- |
 | `OVERRIDE`         | A local override supplied the value (no telemetry).  |
-| `CLIENT_NOT_READY` | Client not initialized — no rules blob loaded yet.   |
+| `CLIENT_NOT_READY` | SDK not initialized — no rules blob loaded yet.      |
 | `FLAG_NOT_FOUND`   | The gate name isn't present in the loaded blob.      |
 | `OFF`              | Gate present but disabled / killed.                  |
 | `RULE_MATCH`       | The gate evaluated `true` (rules + rollout passed).  |

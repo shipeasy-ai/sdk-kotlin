@@ -20,25 +20,27 @@ val flags = Client(currentUser)
 flags.getFlag("new_checkout")        // → Boolean (no user arg; user bound at construction)
 ```
 
-`configure()` builds and stores ONE process-global **`Engine`**; the lightweight
-`Client(user)` reads that engine and delegates. The user (and the `attributes`
-transform you register at configure time) is bound when you construct the
-`Client`, so its methods take no user argument.
+You learn exactly two things:
 
-## Engine vs Client
+1. **`configure()`** (and its test/offline siblings `configureForTesting()` /
+   `configureForOffline()`) — call it once at app boot.
+2. **`Client(user)`** — the cheap, user-bound handle for every read:
+   `getFlag` / `getFlagDetail` / `getConfig` / `getKillswitch` / `getExperiment`
+   / `track` / `logExposure`.
 
-| Type | What it is | When you use it |
-| ---- | ---------- | --------------- |
-| **`Engine`** | Heavyweight: owns the API key, HTTP client, cached blobs, the poll timer, local overrides, telemetry and `see()`. One per process. | Built for you by `configure()`. Construct directly only for multiple keys, tests, the per-call `user` form, or offline snapshots. |
-| **`Client(user)`** | Lightweight user-bound handle. No own connection. Evaluates flags/configs/experiments and records the conversion it measures — `track` / `logExposure` derive the unit from the bound user. | Per request / per user — the everyday evaluation surface. Experiments are end-to-end Client-only. |
+The user (and the `attributes` transform you register at configure time) is bound
+when you construct the `Client`, so its methods take no user argument. Construct a
+`Client` per request/user — it is cheap and opens no connection, fetch, or poll of
+its own.
 
-> **Renamed in 0.8.0 (BREAKING):** the heavyweight class formerly called `Client`
-> is now `Engine`. `Client` is now the bound handle. Replace
-> `Client(apiKey = …)` with `Engine(apiKey = …)` or switch to `configure(...)`.
+A handful of top-level package functions cover everything else without naming a
+heavyweight object: `overrideFlag` / `overrideConfig` / `overrideExperiment` /
+`clearOverrides`, `onChange`, `bootstrapScriptTag` / `i18nScriptTag`, and the
+`see()` family.
 
 ## Feature reference
 
-- [Installation](installation.md) — Gradle dependency, runtime, imports.
+- [Installation](installation.md) — Gradle/Maven dependency, runtime, imports, and the canonical `configure()` reference.
 - [Configuration](configuration.md) — `configure()` in full, the `attributes` transform, init/poll.
 - [Flags](flags.md) — `getFlag` / `getFlagDetail`.
 - [Configs](configs.md) — `getConfig`.
@@ -46,6 +48,6 @@ transform you register at configure time) is bound when you construct the
 - [Experiments](experiments.md) — `getExperiment`, `ExperimentResult`, `track`, `logExposure`.
 - [i18n](i18n.md) — SSR bootstrap + the client-side translation story.
 - [Error reporting](error-reporting.md) — `see()` structured error reporting.
-- [Testing](testing.md) — `Engine.forTesting()` + `override*`, offline snapshots.
+- [Testing](testing.md) — `configureForTesting()` / `configureForOffline()` + the override helpers.
 - [OpenFeature](openfeature.md) — provider availability.
 - [Advanced](advanced.md) — private attributes, sticky bucketing, anon-id, manual exposure, SSR.

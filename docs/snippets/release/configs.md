@@ -8,5 +8,5 @@ import ai.shipeasy.Client
 val flags = Client(currentUser)
 
 // getConfig(name, default = null): default is returned when the key is absent.
-val value = flags.getConfig("{{RESOURCE_NAME}}", default = "Pay now")
+val value = flags.getConfig("{{CONFIG_KEY}}", default = "Pay now")
 ```

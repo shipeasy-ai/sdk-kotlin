@@ -135,7 +135,9 @@ class Engine(
     @Volatile private var flagsEtag: String? = null
     @Volatile private var expsEtag: String? = null
     @Volatile private var pollIntervalSec = 30
-    @Volatile private var initialized = false
+    // internal (not private) so same-module tests can mark a network-built engine
+    // ready without a fetch (ConfigureClientTest); never exposed to consumers.
+    @Volatile internal var initialized = false
     private var pollJob: Job? = null
 
     // Change listeners. Fire after a background-poll fetch returns NEW data
@@ -298,8 +300,15 @@ class Engine(
         val ks = (flagsBlob?.get("killswitches") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
             ?: return false
         if (switchKey == null) return boolFlag(ks["killed"])
-        val switches = ks["switches"] as? Map<String, Any?> ?: return false
-        return boolFlag(switches[switchKey])
+        // Named-switch semantics (cross-SDK contract): a configured switch key
+        // wins; an UNCONFIGURED key falls back to the kill switch's top-level
+        // value (so getKillswitch(name, variable) is safe before any per-key
+        // override is published).
+        val switches = ks["switches"] as? Map<String, Any?>
+        if (switches != null && switches.containsKey(switchKey)) {
+            return boolFlag(switches[switchKey])
+        }
+        return boolFlag(ks["killed"])
     }
 
     /**

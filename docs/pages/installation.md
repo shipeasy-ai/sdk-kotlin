@@ -8,17 +8,13 @@ Server SDK for the JVM (Android-compatible). Distributed on Maven Central as
 ### Gradle (Kotlin DSL) — `build.gradle.kts`
 
 ```kotlin
-dependencies {
-    implementation("ai.shipeasy:shipeasy-kotlin:0.9.0")
-}
+implementation("ai.shipeasy:shipeasy-kotlin:0.10.0")
 ```
 
 ### Gradle (Groovy DSL) — `build.gradle`
 
 ```groovy
-dependencies {
-    implementation 'ai.shipeasy:shipeasy-kotlin:0.9.0'
-}
+implementation 'ai.shipeasy:shipeasy-kotlin:0.10.0'
 ```
 
 ### Maven — `pom.xml`
@@ -27,15 +23,15 @@ dependencies {
 <dependency>
   <groupId>ai.shipeasy</groupId>
   <artifactId>shipeasy-kotlin</artifactId>
-  <version>0.9.0</version>
+  <version>0.10.0</version>
 </dependency>
 ```
 
 ## Runtime
 
 - **JDK 17+** (uses `java.net.http.HttpClient`). Android: minSdk 26+.
-- Kotlin coroutines are used internally; `init()` is a `suspend` function — call
-  it from a coroutine or wrap it in `runBlocking { }`.
+- Kotlin coroutines are used internally. You never call `init()` yourself —
+  `configure()` owns the fetch lifecycle.
 - `jakarta.servlet-api` is a **`compileOnly`** dependency used by the optional
   `AnonIdFilter`; your servlet container supplies it at runtime, so it adds
   nothing to non-servlet (Ktor, Android, http4k) deployments.
@@ -45,7 +41,6 @@ dependencies {
 ```kotlin
 import ai.shipeasy.configure
 import ai.shipeasy.Client
-import ai.shipeasy.Engine        // advanced / direct use, offline factories
 import ai.shipeasy.see           // structured error reporting
 ```
 
@@ -57,25 +52,38 @@ Configure the SDK **once** at app boot with `configure(...)`, then evaluate per
 user/request with a lightweight `Client(user)`. This page is the canonical home
 for `configure()` — every snippet elsewhere assumes it already ran.
 
-### `configure(...)` — full signature
-
 ```kotlin
-fun configure(
-    apiKey: String,                              // SERVER key — authenticates flags/experiments; never reaches the browser
-    attributes: AttributesFn? = null,            // your user object → attribute map (runs once per Client(user))
-    baseUrl: String? = null,                     // edge API origin; default https://edge.shipeasy.dev
-    env: String = "prod",                        // tags telemetry + see() events
-    disableTelemetry: Boolean = false,           // opt out of per-eval usage telemetry
-    telemetryUrl: String? = null,                // override the telemetry beacon origin
-    privateAttributes: List<String> = emptyList(), // attrs usable for targeting but stripped from outbound track()
-    stickyStore: StickyBucketStore? = null,      // lock a unit to its first-assigned variant
-): Engine
+import ai.shipeasy.configure
+import ai.shipeasy.Client
+
+configure(
+    apiKey = System.getenv("SHIPEASY_SERVER_KEY"),
+    attributes = { u -> mapOf("user_id" to (u as MyUser).id, "plan" to u.plan) },
+)
+
+val flags = Client(currentUser)
+if (flags.getFlag("new_checkout")) { /* … */ }
 ```
 
-`configure()` builds the process-global `Engine` (HTTP client + blob cache +
-poll), registers the `attributes` transform, kicks off a fire-and-forget
-one-shot fetch, and **returns the `Engine`**. The **first call wins**; later
-calls return the existing engine and leave the transform untouched.
+The **first call wins**; later `configure()` calls are ignored, so configure
+exactly once. `configure()` kicks off a one-shot fetch in the background, so the
+first `Client(user).getFlag(...)` resolves against real rules without any extra
+call. For a long-running server that should also **poll** for updates, pass
+`poll = true` (see below).
+
+### `configure(...)` options
+
+| Parameter           | Type                   | Default                       | What it does |
+| ------------------- | ---------------------- | ----------------------------- | ------------ |
+| `apiKey`            | `String`               | —                             | **SERVER** key — authenticates flags/experiments/SSR. Never reaches the browser. |
+| `attributes`        | `(Any?) -> Map<…>`     | identity                      | Maps YOUR user object → the targeting bag (`user_id`, `anonymous_id`, attrs). Runs once per `Client(user)`. |
+| `baseUrl`           | `String?`              | `https://edge.shipeasy.dev`   | Edge API origin override. |
+| `env`               | `String`               | `"prod"`                      | Tags telemetry + `see()` events. |
+| `disableTelemetry`  | `Boolean`              | `false`                       | Opt out of per-eval usage telemetry. |
+| `telemetryUrl`      | `String?`              | `null`                        | Override the telemetry beacon origin. |
+| `privateAttributes` | `List<String>`         | `[]`                          | Attrs usable for targeting but stripped from outbound `track()` / `see()` extras. |
+| `stickyStore`       | `StickyBucketStore?`   | `null`                        | Lock a unit to its first-assigned variant (see [Advanced](advanced.md)). |
+| `poll`              | `Boolean`              | `false`                       | `true` → fetch once **and** keep polling in the background; `false` → one-shot fetch only. |
 
 > **Use the SERVER key.** It authenticates flag, experiment and SSR evaluation
 > and must never reach the browser. The public *client* key is only used by the
@@ -108,20 +116,19 @@ When the bound attributes carry neither `user_id` nor `anonymous_id`, the SDK
 defaults `anonymous_id` to the request-scoped `__se_anon_id` cookie (resolved by
 `AnonIdFilter`, see [Advanced](advanced.md)). An explicit unit always wins.
 
-### init/poll vs one-shot
+### Background polling
 
-`configure()` kicks off a **fire-and-forget one-shot fetch**
-(`Engine.initOnce()`) so the first `Client(user).getFlag(...)` resolves against
-real rules without any explicit `init()`. For a long-running server that should
-also **poll** for updates in the background, start the returned engine:
+By default `configure()` fetches the rule blob **once**. For a long-running
+server that should also pick up flag changes without a restart, pass
+`poll = true`:
 
 ```kotlin
-runBlocking { configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY")).init() }
+configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"), poll = true)
 ```
 
-`init()` does the first fetch then starts a background poll (interval driven by
-the server's `X-Poll-Interval` header, default 30s). `initOnce()` fetches once
-and never polls. Both are `suspend`.
+With `poll = true` the SDK does the first fetch then refreshes in the background
+(interval driven by the server's `X-Poll-Interval` header, default 30s). Register
+an [`onChange`](advanced.md) listener to react to each refresh.
 
 ### Environment variables
 
@@ -141,6 +148,7 @@ your framework registers filters.
 
 ```kotlin
 import ai.shipeasy.configure
+import ai.shipeasy.Client
 import ai.shipeasy.AnonIdFilter
 import jakarta.annotation.PostConstruct
 import org.springframework.boot.web.servlet.FilterRegistrationBean
@@ -154,6 +162,7 @@ class ShipeasyConfig {
         configure(
             apiKey = System.getenv("SHIPEASY_SERVER_KEY"),
             attributes = { u -> mapOf("user_id" to (u as MyUser).id, "plan" to u.plan) },
+            poll = true,   // long-running server → keep polling
         )
     }
 
@@ -185,6 +194,7 @@ fun Application.module() {
     configure(
         apiKey = System.getenv("SHIPEASY_SERVER_KEY"),
         attributes = { u -> mapOf("user_id" to (u as MyUser).id) },
+        poll = true,
     )
 
     routing {
@@ -193,6 +203,21 @@ fun Application.module() {
             call.respondText(if (flags.getFlag("new_checkout")) "new" else "old")
         }
     }
+}
+```
+
+### Plain `main()` / batch job
+
+```kotlin
+import ai.shipeasy.configure
+import ai.shipeasy.Client
+
+fun main() {
+    // poll = true so a long-running job keeps refreshing
+    configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"), poll = true)
+
+    val flags = Client(mapOf("user_id" to "u_123", "plan" to "pro"))
+    if (flags.getFlag("new_checkout")) { /* … */ }
 }
 ```
 
@@ -212,6 +237,7 @@ class App : Application() {
         configure(
             apiKey = BuildConfig.SHIPEASY_SERVER_KEY,
             attributes = { u -> mapOf("user_id" to (u as Account).id) },
+            poll = true,
         )
     }
 }
@@ -223,39 +249,3 @@ if (flags.getFlag("new_checkout")) showNewCheckout()
 
 > On a mobile client, treat the embedded key as **public** — use a public client
 > key, not a privileged server key.
-
-### Plain `main()` / batch job
-
-```kotlin
-import ai.shipeasy.configure
-import ai.shipeasy.Client
-import kotlinx.coroutines.runBlocking
-
-fun main() = runBlocking {
-    // init() (not just initOnce()) so a long-running job keeps polling
-    configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY")).init()
-
-    val flags = Client(mapOf("user_id" to "u_123", "plan" to "pro"))
-    if (flags.getFlag("new_checkout")) { /* … */ }
-}
-```
-
----
-
-## Direct `Engine` construction (advanced)
-
-For multiple keys, explicit instances or the per-call `user` form:
-
-```kotlin
-import ai.shipeasy.Engine
-
-val engine = Engine(apiKey = System.getenv("SHIPEASY_SERVER_KEY"))
-runBlocking { engine.init() }
-
-engine.getFlag("new_checkout", mapOf("user_id" to "u_123"))   // per-call user arg
-engine.close()
-```
-
-The last-constructed `Engine` also becomes the default backing the package-level
-`see()` functions. `Engine` is `AutoCloseable` — call `close()` (or `use { }`)
-to stop the poll.

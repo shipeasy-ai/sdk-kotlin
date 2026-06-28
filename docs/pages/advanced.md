@@ -48,6 +48,7 @@ one; evaluations then **default to it** as `anonymous_id`.
 fun shipeasyAnonId() = FilterRegistrationBean(AnonIdFilter())
 
 // logged-out request → buckets on the __se_anon_id cookie automatically
+val flags = Client(loggedOutUser)
 flags.getFlag("new_checkout")     // bound Client with no explicit unit
 ```
 
@@ -61,24 +62,27 @@ see `18-identity-bucketing.md`.
 ## Manual exposure
 
 The server is stateless and never auto-logs. Call `logExposure` where you
-present the treatment. The bound `Client` form derives the unit from the bound
-user:
+present the treatment. The bound `Client` derives the unit from the bound user:
 
 ```kotlin
-flags.logExposure("checkout_button")          // bound Client (preferred)
-engine.logExposure("u_123", "checkout_button") // low-level, per-call user
+val flags = Client(currentUser)
+flags.logExposure("checkout_button")
 ```
 
 See [Experiments](experiments.md).
 
 ## Change listeners — `onChange`
 
-Subscribe to data-change notifications. The listener fires after a background
-poll brings **new** data (HTTP 200, not 304) — not for the initial `init()`
-fetch, and never in an offline/test client. Returns an unsubscribe function.
+Subscribe to data-change notifications with the top-level `onChange` function.
+The listener fires after a background poll brings **new** data (HTTP 200, not
+304) — not for the initial fetch, and never under `configureForTesting` /
+`configureForOffline`. Requires `configure(..., poll = true)`. Returns an
+unsubscribe function.
 
 ```kotlin
-val unsubscribe = engine.onChange {
+import ai.shipeasy.onChange
+
+val unsubscribe = onChange {
     // rebuild any cached evaluations, warm a downstream cache, etc.
 }
 // later
@@ -91,21 +95,22 @@ affect the others.
 ## Server-side rendering (SSR)
 
 Emit the request's evaluated flags as a declarative `<script>` tag so the
-browser SDK has them on first paint. `bootstrapScriptTag` carries the payload in
-`data-*` attributes (**no key**); the static loader hydrates
-`window.__SE_BOOTSTRAP` and writes the `__se_anon_id` cookie so the browser
-buckets identically to the server.
+browser SDK has them on first paint. `bootstrapScriptTag` (a top-level function
+backed by the global `configure()` state) carries the payload in `data-*`
+attributes (**no key**); the static loader hydrates `window.__SE_BOOTSTRAP` and
+writes the `__se_anon_id` cookie so the browser buckets identically to the
+server.
 
 ```kotlin
+import ai.shipeasy.bootstrapScriptTag
+import ai.shipeasy.i18nScriptTag
+
 val user = mapOf("user_id" to "u_123")
 
 // Two tags for the document <head>. The PUBLIC client key (not the server key)
 // goes on the i18n loader tag.
-val head = engine.bootstrapScriptTag(user, anonId = anonId) +
-           engine.i18nScriptTag(clientKey, "en:prod")
-
-// …or get the raw payload ({flags, configs, experiments, killswitches}):
-val boot = engine.evaluate(user)
+val head = bootstrapScriptTag(user, anonId = anonId) +
+           i18nScriptTag(clientKey, "en:prod")
 ```
 
 `bootstrapScriptTag` also accepts `i18nProfile` and `baseUrl` (default

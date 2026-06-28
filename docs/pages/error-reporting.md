@@ -9,8 +9,7 @@ with its product *consequence* — not just a stack trace — fire-and-forget to
 
 ## Package-level `see()`
 
-`see()` uses the **default engine** (the last-constructed `Engine`, set
-automatically by `configure()` / `Engine(...)`):
+`see()` reports against the SDK configured by `configure()` — no object to pass:
 
 ```kotlin
 import ai.shipeasy.see
@@ -34,12 +33,6 @@ The chain:
   If you never call `to()`, **nothing is sent**. Calling `to()` twice is a no-op.
 
 `causesThe()` and `extras()` may be called in any order before `to()`.
-
-## Target a specific engine
-
-```kotlin
-engine.see(e).causesThe("checkout").to("use cached prices")
-```
 
 ## Non-exception problems — `seeViolation`
 
@@ -70,5 +63,5 @@ controlFlowException(e).because("retryable timeout — handled by the retry loop
 - A per-process spam guard collapses identical reports within a 30s window and
   caps total sends per process.
 - Configured `privateAttributes` are stripped from `extras()`.
-- `env` is tagged onto every event.
-- Calling `see()` before any engine exists logs a warning and is a no-op.
+- `env` (from `configure()`) is tagged onto every event.
+- Calling `see()` before `configure()` ran logs a warning and is a no-op.

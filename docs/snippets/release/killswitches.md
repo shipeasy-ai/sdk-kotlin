@@ -8,8 +8,9 @@ import ai.shipeasy.Client
 val flags = Client(currentUser)
 
 // getKillswitch(name, switchKey = null): without switchKey → true when the whole
-// kill switch is killed; with switchKey → true when that per-key override is on.
-if (flags.getKillswitch("{{RESOURCE_NAME}}", switchKey = null)) {
+// kill switch is killed; with switchKey → true when that named per-key override
+// is on (an unconfigured key falls back to the top-level value).
+if (flags.getKillswitch("{{KILLSWITCH_KEY}}", switchKey = null)) {
     return serviceUnavailable()   // killed — short-circuit
 }
 ```

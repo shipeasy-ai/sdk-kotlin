@@ -4,15 +4,12 @@ rendering happens in the browser via the client SDK.) Assumes `configure()` ran
 at startup — see [Installation](../../pages/installation.md).
 
 ```kotlin
-import ai.shipeasy.currentEngine
-
-// grab the process-global engine built by configure(); construct/resolve once
-// per callsite (the script tag is rendered per response)
-val engine = currentEngine() ?: error("configure() must run before SSR")
+import ai.shipeasy.i18nScriptTag
 
 // i18nScriptTag(clientKey, profile = "en:prod", baseUrl = null):
 //   clientKey — the PUBLIC client key (never the server key)
 //   profile   — the locale profile to hydrate, e.g. "{{PROFILE}}"
 //   baseUrl   — CDN origin override; default https://cdn.shipeasy.ai
-val head = engine.i18nScriptTag(clientKey, "{{PROFILE}}")
+// top-level function, backed by the global configure() state — no object to hold
+val head = i18nScriptTag(clientKey, "{{PROFILE}}")
 ```
