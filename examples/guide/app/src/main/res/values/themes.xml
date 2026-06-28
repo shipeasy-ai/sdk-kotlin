@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The real UI is drawn by Compose; this base theme only styles the
+         pre-Compose window (splash background + bars) to the brand surface.
+         Material3.NoActionBar keeps the system action bar out of the way. -->
+    <style name="Theme.ShipeasyGuide" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/se_window</item>
+        <item name="android:navigationBarColor">@color/se_window</item>
+        <item name="android:windowBackground">@color/se_window</item>
+    </style>
+</resources>

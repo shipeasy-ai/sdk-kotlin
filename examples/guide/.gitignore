@@ -1,0 +1,11 @@
+# Android / Gradle build outputs
+build/
+.gradle/
+
+# Android Studio local config (machine-specific SDK path, etc.)
+local.properties
+.idea/
+*.iml
+
+# OS cruft
+.DS_Store

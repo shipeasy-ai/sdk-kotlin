@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shipeasy dark brand surface, used for the system bars / splash so the
+         native chrome matches the Compose UI. -->
+    <color name="se_window">#0A0A0B</color>
+    <color name="se_accent">#34D399</color>
+    <color name="ic_launcher_background">#0A0A0B</color>
+</resources>

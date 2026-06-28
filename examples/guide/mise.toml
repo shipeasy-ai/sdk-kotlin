@@ -1,0 +1,12 @@
+# Pin the JDK used to build/test this Android example.
+#
+# AGP 8.5.2 + Gradle 8.9 require JDK 17 (the host's default JDK is 26, which
+# Gradle 8.9 rejects). mise provides a JDK 17 without sudo:
+#
+#   mise install                 # ensure the JDK below is present
+#   ./gradlew :app:testDebugUnitTest
+#
+# The Android SDK location is set out-of-band in local.properties
+# (sdk.dir=...), which is git-ignored and machine-specific.
+[tools]
+java = "temurin-17"

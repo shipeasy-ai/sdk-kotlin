@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Pre-API-26 fallback launcher icon (vectors are supported since API 21,
+         so this covers minSdk 24/25 where adaptive icons are unavailable). -->
+    <path
+        android:fillColor="#0A0A0B"
+        android:pathData="M0,0 H108 V108 H0 Z" />
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M54,30 L74,66 L54,58 L34,66 Z" />
+    <path
+        android:fillColor="#60A5FA"
+        android:pathData="M54,58 L74,66 L54,78 L34,66 Z" />
+</vector>

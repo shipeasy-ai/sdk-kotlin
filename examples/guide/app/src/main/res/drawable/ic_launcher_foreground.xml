@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A simple "ship" chevron mark in the Shipeasy green, centred within the
+         adaptive-icon safe zone. -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M54,30 L74,66 L54,58 L34,66 Z" />
+    <path
+        android:fillColor="#60A5FA"
+        android:pathData="M54,58 L74,66 L54,78 L34,66 Z" />
+</vector>
