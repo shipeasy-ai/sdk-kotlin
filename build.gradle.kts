@@ -17,13 +17,12 @@ dependencies {
     // runtime, so it adds nothing to consumers' deployments; non-servlet users
     // never load the filter class.
     compileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
-    // Generated OpenAPI admin client (ai.shipeasy.admin): OkHttp4 + Moshi
-    // (reflection adapter — @JsonClass(generateAdapter=false), so no KSP).
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.moshi:moshi:1.15.1")
-    implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
     testImplementation(kotlin("test"))
 }
+
+// The generated OpenAPI admin client ships as a SEPARATE, opt-in artifact
+// (ai.shipeasy:shipeasy-admin-kotlin — see ./admin) so this flags SDK keeps zero
+// new runtime deps. Consumers opt in by depending on shipeasy-admin-kotlin.
 
 kotlin { jvmToolchain(11) }
 

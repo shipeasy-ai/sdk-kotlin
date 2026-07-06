@@ -6,11 +6,14 @@ Ship the generated OpenAPI **admin** client alongside the flags SDK.
 
 ### Added
 
-- **`ai.shipeasy.admin`** — a generated (OpenAPI, OkHttp4 + Moshi, coroutines)
+- **`ai.shipeasy:shipeasy-admin-kotlin`** — a NEW, separate, opt-in artifact
+  (source under `./admin`): a generated (OpenAPI, OkHttp4 + Moshi, coroutines)
   client for the Shipeasy **admin** API (flags / experiments / configs / kill
-  switches / metrics / errors / ops — full CRUD + reads), bundled into the
-  `ai.shipeasy:shipeasy-kotlin` artifact. Adds okhttp/moshi as transitive deps.
-  Generated via `openapi-generator` (see `apps/mobile` → `pnpm gen:clients kotlin`).
+  switches / metrics / errors / ops — full CRUD + reads). It ships as its own
+  Maven artifact so this flags SDK (`ai.shipeasy:shipeasy-kotlin`) keeps **zero**
+  new runtime deps — consumers opt in with `ai.shipeasy:shipeasy-admin-kotlin`.
+  Mirrors the nested `admin` module pattern used by sdk-go/python. Generated via
+  `openapi-generator` (see `apps/mobile` → `pnpm gen:clients kotlin`).
 
 ## 0.10.0
 
