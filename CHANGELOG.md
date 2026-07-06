@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0
+
+Ship the generated OpenAPI **admin** client alongside the flags SDK.
+
+### Added
+
+- **`ai.shipeasy.admin`** — a generated (OpenAPI, OkHttp4 + Moshi, coroutines)
+  client for the Shipeasy **admin** API (flags / experiments / configs / kill
+  switches / metrics / errors / ops — full CRUD + reads), bundled into the
+  `ai.shipeasy:shipeasy-kotlin` artifact. Adds okhttp/moshi as transitive deps.
+  Generated via `openapi-generator` (see `apps/mobile` → `pnpm gen:clients kotlin`).
+
 ## 0.10.0
 
 The uniform SDK DX standard (experiment-platform doc 23). The documented surface
