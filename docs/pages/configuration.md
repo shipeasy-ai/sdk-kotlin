@@ -34,6 +34,7 @@ exactly once.
 | `stickyStore`       | `null`                        | Lock a unit to its first-assigned variant. |
 | `poll`              | `false`                       | `true` → fetch once and keep polling; `false` → one-shot fetch. |
 | `logLevel`          | `LogLevel.WARN`               | SDK log verbosity (`SILENT`, `ERROR`, `WARN`, `INFO`, `DEBUG`). |
+| `disableInternalErrorReporting` | `false`           | Opt out of self-reporting SDK-internal errors to Shipeasy. |
 
 The full options table with types lives on the [Installation](installation.md)
 page — that page is the canonical home for `configure()`.
@@ -91,6 +92,23 @@ Setup and lifecycle calls stay loud on purpose — constructing `Client(user)`
 before `configure()`, `configureForOffline(...)` with no source, or a bad
 snapshot path still throw, because those are boot-time misconfiguration you want
 surfaced.
+
+When one of these last-resort guards catches an internal SDK failure — a bug on
+*our* side, not yours — the SDK also reports it to **Shipeasy's own** project so
+we can find and fix SDK bugs across the apps that run it. This never touches your
+project or your Errors tab, carries no user/app data beyond the error itself, and
+is fire-and-forget (it can never slow down or break a read). It is on by default;
+opt out with `disableInternalErrorReporting = true`:
+
+```kotlin
+configure(
+    apiKey = System.getenv("SHIPEASY_SERVER_KEY"),
+    disableInternalErrorReporting = true,
+)
+```
+
+Test/offline mode (`configureForTesting` / `configureForOffline`) never sends
+anything, so internal reporting is off there regardless.
 
 Control how much the SDK logs with `logLevel` (default `WARN`), ordered
 `SILENT < ERROR < WARN < INFO < DEBUG` — a message at level `L` is emitted only

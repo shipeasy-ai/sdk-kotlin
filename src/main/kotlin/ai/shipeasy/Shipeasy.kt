@@ -77,6 +77,10 @@ fun configure(
     stickyStore: StickyBucketStore? = null,
     poll: Boolean = false,
     logLevel: LogLevel = LogLevel.WARN,
+    // Opt out of the internal self-monitoring channel (SDK-internal errors that a
+    // runtime reader's last-resort guard swallows are reported to Shipeasy's own
+    // project). Default OFF (reporting ON); always off in test/offline mode.
+    disableInternalErrorReporting: Boolean = false,
 ): Engine {
     synchronized(configureLock) {
         globalEngine?.let { return it }
@@ -90,6 +94,7 @@ fun configure(
             privateAttributes = privateAttributes,
             stickyStore = stickyStore,
             logLevel = logLevel,
+            disableInternalErrorReporting = disableInternalErrorReporting,
         )
         globalEngine = engine
         // Fetch lifecycle owned by configure (the docs never tell a user to call

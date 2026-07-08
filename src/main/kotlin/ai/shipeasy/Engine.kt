@@ -78,6 +78,12 @@ class Engine(
     // SDK log verbosity (SILENT < ERROR < WARN < INFO < DEBUG). Sets the level on
     // the shared [Log] helper so every SDK diagnostic is gated. Default WARN.
     private val logLevel: LogLevel = LogLevel.WARN,
+    // Opt out of the internal self-monitoring channel — the fire-and-forget
+    // report to Shipeasy's OWN project when a runtime reader's last-resort guard
+    // swallows an SDK-internal ("on our end") error. Default OFF (reporting ON);
+    // always off in localMode. Distinct from [disableTelemetry] (per-eval usage)
+    // and the customer-facing see() path. See InternalReport.kt.
+    private val disableInternalErrorReporting: Boolean = false,
     // Local (no-network) test mode. Set only via [forTesting]; init/initOnce/
     // track become no-ops and the client never reaches the network. See the
     // "Testing" section of the README.
@@ -154,6 +160,15 @@ class Engine(
         // Register as the default engine backing the package-level see() funcs
         // (last constructed wins — the server-SDK analog of TS's shipeasy({key})).
         setDefaultClient(this)
+        // Wire the internal self-monitoring channel: SDK-internal errors swallowed
+        // by the runtime readers' last-resort guards get reported to Shipeasy's
+        // own project. Forced off in localMode (test/offline) and when the caller
+        // opts out via disableInternalErrorReporting.
+        InternalReport.setContext(
+            side = "server",
+            sdkVersion = VERSION,
+            enabled = !disableInternalErrorReporting && !localMode,
+        )
     }
 
     suspend fun init() {
@@ -234,8 +249,11 @@ class Engine(
         FlagDetail(value, if (value) Reason.RULE_MATCH else Reason.DEFAULT)
     }.getOrElse {
         // Runtime reads must never throw into the caller — log at error and fall
-        // back to the documented "not ready" default (false).
+        // back to the documented "not ready" default (false). This is an internal
+        // ("on our end") failure, so also self-report it to Shipeasy's own project
+        // (fire-and-forget, never throws); the stable label is the issue subject.
         Log.error("getFlagDetail('$name') threw, returning safe default: ${it.message}")
+        InternalReport.report("flags.getFlagDetail", it)
         FlagDetail(false, Reason.CLIENT_NOT_READY)
     }
 
@@ -251,6 +269,7 @@ class Engine(
         else d.value
     }.getOrElse {
         Log.error("getFlag('$name') threw, returning default: ${it.message}")
+        InternalReport.report("flags.getFlag", it)
         default
     }
 
@@ -288,6 +307,7 @@ class Engine(
         entry["value"]
     }.getOrElse {
         Log.error("getConfig('$name') threw, returning default: ${it.message}")
+        InternalReport.report("flags.getConfig", it)
         default
     }
 
@@ -303,6 +323,7 @@ class Engine(
     }.getOrElse {
         // Documented safe default: not enrolled, control group, caller's params.
         Log.error("getExperiment('$name') threw, returning not-enrolled default: ${it.message}")
+        InternalReport.report("flags.getExperiment", it)
         ExperimentResult(false, "control", defaultParams)
     }
 
@@ -330,6 +351,7 @@ class Engine(
         boolFlag(ks["killed"])
     }.getOrElse {
         Log.error("getKillswitch('$name') threw, returning false: ${it.message}")
+        InternalReport.report("flags.getKillswitch", it)
         false
     }
 
