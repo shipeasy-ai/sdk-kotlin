@@ -21,7 +21,10 @@ include(":admin")
 // the pure-JVM core build / test / Maven-publish never needs the Android SDK.
 // Enable on an Android-capable runner with `-PwithAndroid` or by exporting
 // ANDROID_HOME / ANDROID_SDK_ROOT.
-val androidEnabled = startParameter.projectProperties.containsKey("withAndroid") ||
+val androidCapable = startParameter.projectProperties.containsKey("withAndroid") ||
     System.getenv("ANDROID_HOME") != null ||
     System.getenv("ANDROID_SDK_ROOT") != null
+// AGP itself requires Java 17+, so JDK-11 builds (the oldest CI leg) must skip
+// the module even on runners that ship an Android SDK.
+val androidEnabled = androidCapable && JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_17)
 if (androidEnabled) include(":android")
