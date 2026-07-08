@@ -26,7 +26,7 @@ exactly once.
 | ------------------- | ----------------------------- | ------------ |
 | `apiKey`            | —                             | **SERVER** key — authenticates flags/experiments/SSR. |
 | `attributes`        | identity                      | Your user object → attribute map. Runs once per `Client(user)`. |
-| `baseUrl`           | `https://edge.shipeasy.dev`   | Edge API origin override. |
+| `baseUrl`           | `https://api.shipeasy.ai`   | Edge API origin override. |
 | `env`               | `"prod"`                      | Tags telemetry + `see()` events. |
 | `disableTelemetry`  | `false`                       | Opt out of per-eval usage telemetry. |
 | `telemetryUrl`      | `null`                        | Override the telemetry beacon origin. |

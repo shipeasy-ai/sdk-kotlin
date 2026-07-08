@@ -77,7 +77,7 @@ call. For a long-running server that should also **poll** for updates, pass
 | ------------------- | ---------------------- | ----------------------------- | ------------ |
 | `apiKey`            | `String`               | —                             | **SERVER** key — authenticates flags/experiments/SSR. Never reaches the browser. |
 | `attributes`        | `(Any?) -> Map<…>`     | identity                      | Maps YOUR user object → the targeting bag (`user_id`, `anonymous_id`, attrs). Runs once per `Client(user)`. |
-| `baseUrl`           | `String?`              | `https://edge.shipeasy.dev`   | Edge API origin override. |
+| `baseUrl`           | `String?`              | `https://api.shipeasy.ai`   | Edge API origin override. |
 | `env`               | `String`               | `"prod"`                      | Tags telemetry + `see()` events. |
 | `disableTelemetry`  | `Boolean`              | `false`                       | Opt out of per-eval usage telemetry. |
 | `telemetryUrl`      | `String?`              | `null`                        | Override the telemetry beacon origin. |

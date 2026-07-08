@@ -83,7 +83,7 @@ class Engine(
     // "Testing" section of the README.
     private val localMode: Boolean = false,
 ) : AutoCloseable {
-    private val baseUrl: String = (baseUrl ?: "https://edge.shipeasy.dev").trimEnd('/')
+    private val baseUrl: String = (baseUrl ?: "https://api.shipeasy.ai").trimEnd('/')
     private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
 
     // Deployment env, tagged onto see() error events (telemetry already carries
