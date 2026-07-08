@@ -46,6 +46,30 @@ import ai.shipeasy.see           // structured error reporting
 
 ---
 
+## Packaging — pure-JVM core + Android client artifact
+
+The SDK is split into two bundles so a backend and a shipped app pull only what
+they need:
+
+| Bundle | Coordinate | Contains | For |
+| ------ | ---------- | -------- | --- |
+| Core | `ai.shipeasy:shipeasy-kotlin` | Server front door (`configure` / `Client`, `AnonIdFilter`) **and** the client core (`ShipeasyClient` / `configureClient` / `AnonStore`) | JVM **backends** (Ktor / Spring / http4k) |
+| Android | `ai.shipeasy:shipeasy-kotlin-android` | `SharedPreferencesAnonStore` + `configureAndroid()` (depends on the core) | Shipped **Android** apps |
+
+The core jar is **pure-JVM and Android-free** — `jakarta.servlet` is
+`compileOnly` and there are no `android.*` imports — so a backend pulls **zero**
+Android/servlet runtime dependencies. On Android, R8/ProGuard strips the unused
+server (servlet) code, and the Android artifact is a thin adapter (the client
+evaluation logic lives in the shared core). A shipped app uses the **public
+client** key; a backend uses the **server** key.
+
+> The client evaluation logic currently lives in the core jar rather than a
+> dedicated `shipeasy-kotlin-client` artifact — the two paths are small and share
+> the evaluation/telemetry/`AnonStore` types, and dead code is stripped per
+> target above.
+
+---
+
 ## Configure once, then bind per user
 
 Configure the SDK **once** at app boot with `configure(...)`, then evaluate per
