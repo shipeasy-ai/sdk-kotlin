@@ -21,7 +21,6 @@ import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.logging.Logger
 
 /** Result of [Engine.getFlagDetail]: the gate value plus the reason for it. */
 data class FlagDetail(val value: Boolean, val reason: String)
@@ -76,12 +75,14 @@ class Engine(
     // lever). Absent ⇒ deterministic (fully backward compatible). Built-in:
     // [InMemoryStickyStore].
     private val stickyStore: StickyBucketStore? = null,
+    // SDK log verbosity (SILENT < ERROR < WARN < INFO < DEBUG). Sets the level on
+    // the shared [Log] helper so every SDK diagnostic is gated. Default WARN.
+    private val logLevel: LogLevel = LogLevel.WARN,
     // Local (no-network) test mode. Set only via [forTesting]; init/initOnce/
     // track become no-ops and the client never reaches the network. See the
     // "Testing" section of the README.
     private val localMode: Boolean = false,
 ) : AutoCloseable {
-    private val log = Logger.getLogger("shipeasy")
     private val baseUrl: String = (baseUrl ?: "https://edge.shipeasy.dev").trimEnd('/')
     private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
 
@@ -100,7 +101,7 @@ class Engine(
     internal var seeSender: (ByteArray) -> Unit = { body ->
         scope.launch {
             runCatching { post("/collect", body) }
-                .onFailure { log.warning("see() send failed: ${it.message}") }
+                .onFailure { Log.warn("see() send failed: ${it.message}") }
         }
     }
 
@@ -110,7 +111,7 @@ class Engine(
     internal var eventSender: (ByteArray) -> Unit = { body ->
         scope.launch {
             runCatching { post("/collect", body) }
-                .onFailure { log.warning("event send failed: ${it.message}") }
+                .onFailure { Log.warn("event send failed: ${it.message}") }
         }
     }
 
@@ -147,6 +148,9 @@ class Engine(
     private val changeListeners = CopyOnWriteArrayList<() -> Unit>()
 
     init {
+        // Apply the configured verbosity to the shared leveled logger before any
+        // diagnostic can fire (last constructed wins, same as the default engine).
+        Log.setLevel(logLevel)
         // Register as the default engine backing the package-level see() funcs
         // (last constructed wins — the server-SDK analog of TS's shipeasy({key})).
         setDefaultClient(this)
@@ -164,7 +168,7 @@ class Engine(
                     // counts as a change — the initial init() fetch above never
                     // notifies, and 304s leave the blobs untouched.
                     if (fetchAll()) notifyChange()
-                }.onFailure { log.warning("poll failed: ${it.message}") }
+                }.onFailure { Log.warn("poll failed: ${it.message}") }
             }
         }
     }
@@ -209,25 +213,30 @@ class Engine(
      * [getFlag]'s override path; otherwise exactly one "gate" beacon is emitted.
      */
     @Suppress("UNCHECKED_CAST")
-    fun getFlagDetail(name: String, user: Map<String, Any?>): FlagDetail {
+    fun getFlagDetail(name: String, user: Map<String, Any?>): FlagDetail = runCatching {
         // 1. Local override wins and skips telemetry (mirrors the override path).
-        flagOverrides[name]?.let { return FlagDetail(it, Reason.OVERRIDE) }
+        flagOverrides[name]?.let { return@runCatching FlagDetail(it, Reason.OVERRIDE) }
         // Single telemetry emit for every non-override path (steps 2–5).
         telemetry.emit("gate", name)
         // 2. No rules blob loaded yet.
         val gates = flagsBlob?.get("gates") as? Map<String, Any?>
-            ?: return FlagDetail(false, Reason.CLIENT_NOT_READY)
+            ?: return@runCatching FlagDetail(false, Reason.CLIENT_NOT_READY)
         // 3. Gate absent from the loaded blob.
         val gate = gates[name] as? Map<String, Any?>
-            ?: return FlagDetail(false, Reason.FLAG_NOT_FOUND)
+            ?: return@runCatching FlagDetail(false, Reason.FLAG_NOT_FOUND)
         // 4. Gate present but disabled / killed — read the same fields the
         //    canonical eval reads (killswitch + enabled) so the two never drift.
         if (boolFlag(gate["killswitch"]) || !boolFlag(gate["enabled"])) {
-            return FlagDetail(false, Reason.OFF)
+            return@runCatching FlagDetail(false, Reason.OFF)
         }
         // 5. Real evaluation.
         val value = Eval.evalGate(gate, withAnonId(user))
-        return FlagDetail(value, if (value) Reason.RULE_MATCH else Reason.DEFAULT)
+        FlagDetail(value, if (value) Reason.RULE_MATCH else Reason.DEFAULT)
+    }.getOrElse {
+        // Runtime reads must never throw into the caller — log at error and fall
+        // back to the documented "not ready" default (false).
+        Log.error("getFlagDetail('$name') threw, returning safe default: ${it.message}")
+        FlagDetail(false, Reason.CLIENT_NOT_READY)
     }
 
     /**
@@ -236,10 +245,13 @@ class Engine(
      * a gate that legitimately evaluates to false. The 2-arg form keeps
      * returning false for a missing flag.
      */
-    fun getFlag(name: String, user: Map<String, Any?>, default: Boolean = false): Boolean {
+    fun getFlag(name: String, user: Map<String, Any?>, default: Boolean = false): Boolean = runCatching {
         val d = getFlagDetail(name, user)
-        return if (d.reason == Reason.CLIENT_NOT_READY || d.reason == Reason.FLAG_NOT_FOUND) default
+        if (d.reason == Reason.CLIENT_NOT_READY || d.reason == Reason.FLAG_NOT_FOUND) default
         else d.value
+    }.getOrElse {
+        Log.error("getFlag('$name') threw, returning default: ${it.message}")
+        default
     }
 
     // Boundary mirror of Eval's private `enabled` — keeps the OFF check reading
@@ -268,23 +280,30 @@ class Engine(
      * is honoured and wins over [default].
      */
     @Suppress("UNCHECKED_CAST")
-    fun getConfig(name: String, default: Any? = null): Any? {
-        configOverrides[name]?.let { return it.value }
+    fun getConfig(name: String, default: Any? = null): Any? = runCatching {
+        configOverrides[name]?.let { return@runCatching it.value }
         telemetry.emit("config", name)
-        val configs = flagsBlob?.get("configs") as? Map<String, Any?> ?: return default
-        val entry = configs[name] as? Map<String, Any?> ?: return default
-        return entry["value"]
+        val configs = flagsBlob?.get("configs") as? Map<String, Any?> ?: return@runCatching default
+        val entry = configs[name] as? Map<String, Any?> ?: return@runCatching default
+        entry["value"]
+    }.getOrElse {
+        Log.error("getConfig('$name') threw, returning default: ${it.message}")
+        default
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun getExperiment(name: String, user: Map<String, Any?>, defaultParams: Any?): ExperimentResult {
-        experimentOverrides[name]?.let { return it }
+    fun getExperiment(name: String, user: Map<String, Any?>, defaultParams: Any?): ExperimentResult = runCatching {
+        experimentOverrides[name]?.let { return@runCatching it }
         telemetry.emit("experiment", name)
         val flags = flagsBlob
         val exps = expsBlob
         val exp = (exps?.get("experiments") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
         val r = Eval.evalExperiment(exp, flags, exps, withAnonId(user), name, stickyStore)
-        return if (r.params == null) r.copy(params = defaultParams) else r
+        if (r.params == null) r.copy(params = defaultParams) else r
+    }.getOrElse {
+        // Documented safe default: not enrolled, control group, caller's params.
+        Log.error("getExperiment('$name') threw, returning not-enrolled default: ${it.message}")
+        ExperimentResult(false, "control", defaultParams)
     }
 
     /**
@@ -295,20 +314,23 @@ class Engine(
      * `getKillswitch`); exposed on [Client] for one-stop ergonomics.
      */
     @Suppress("UNCHECKED_CAST")
-    fun getKillswitch(name: String, switchKey: String? = null): Boolean {
+    fun getKillswitch(name: String, switchKey: String? = null): Boolean = runCatching {
         telemetry.emit("ks", name)
         val ks = (flagsBlob?.get("killswitches") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
-            ?: return false
-        if (switchKey == null) return boolFlag(ks["killed"])
+            ?: return@runCatching false
+        if (switchKey == null) return@runCatching boolFlag(ks["killed"])
         // Named-switch semantics (cross-SDK contract): a configured switch key
         // wins; an UNCONFIGURED key falls back to the kill switch's top-level
         // value (so getKillswitch(name, variable) is safe before any per-key
         // override is published).
         val switches = ks["switches"] as? Map<String, Any?>
         if (switches != null && switches.containsKey(switchKey)) {
-            return boolFlag(switches[switchKey])
+            return@runCatching boolFlag(switches[switchKey])
         }
-        return boolFlag(ks["killed"])
+        boolFlag(ks["killed"])
+    }.getOrElse {
+        Log.error("getKillswitch('$name') threw, returning false: ${it.message}")
+        false
     }
 
     /**
@@ -417,14 +439,17 @@ class Engine(
 
     fun track(userId: String, eventName: String, properties: Map<String, Any?>? = null) {
         if (localMode) return
-        val safeProps = stripPrivate(properties)
-        val event = buildMap<String, Any?> {
-            put("type", "metric"); put("event_name", eventName); put("user_id", userId)
-            put("ts", Instant.now().toEpochMilli())
-            if (!safeProps.isNullOrEmpty()) put("properties", safeProps)
-        }
-        val body = mapOf("events" to listOf(event))
-        eventSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
+        // Fire-and-forget: an unexpected throwable must never surface to the caller.
+        runCatching {
+            val safeProps = stripPrivate(properties)
+            val event = buildMap<String, Any?> {
+                put("type", "metric"); put("event_name", eventName); put("user_id", userId)
+                put("ts", Instant.now().toEpochMilli())
+                if (!safeProps.isNullOrEmpty()) put("properties", safeProps)
+            }
+            val body = mapOf("events" to listOf(event))
+            eventSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
+        }.onFailure { Log.error("track('$eventName') failed: ${it.message}") }
     }
 
     /**
@@ -437,15 +462,18 @@ class Engine(
      */
     fun logExposure(userId: String, experimentName: String) {
         if (localMode) return
-        val result = getExperiment(experimentName, mapOf("user_id" to userId), null)
-        if (!result.inExperiment) return
-        val event = buildMap<String, Any?> {
-            put("type", "exposure"); put("experiment", experimentName)
-            put("group", result.group); put("user_id", userId)
-            put("ts", Instant.now().toEpochMilli())
-        }
-        val body = mapOf("events" to listOf(event))
-        eventSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
+        // Fire-and-forget: never surface a throwable to the caller.
+        runCatching {
+            val result = getExperiment(experimentName, mapOf("user_id" to userId), null)
+            if (!result.inExperiment) return
+            val event = buildMap<String, Any?> {
+                put("type", "exposure"); put("experiment", experimentName)
+                put("group", result.group); put("user_id", userId)
+                put("ts", Instant.now().toEpochMilli())
+            }
+            val body = mapOf("events" to listOf(event))
+            eventSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
+        }.onFailure { Log.error("logExposure('$experimentName') failed: ${it.message}") }
     }
 
     // ---- see() structured error reporting ----
@@ -486,7 +514,7 @@ class Engine(
             if (!seeLimiter.shouldSend(ev)) return
             val body = mapOf("events" to listOf(ev))
             seeSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
-        }.onFailure { log.warning("see() send failed: ${it.message}") }
+        }.onFailure { Log.error("see() send failed: ${it.message}") }
     }
 
     /** Returns true if either blob was refreshed with new data (200, not 304). */
@@ -543,7 +571,7 @@ class Engine(
 
     private fun notifyChange() {
         for (l in changeListeners) {
-            runCatching { l() }.onFailure { log.warning("onChange listener threw: ${it.message}") }
+            runCatching { l() }.onFailure { Log.warn("onChange listener threw: ${it.message}") }
         }
     }
 

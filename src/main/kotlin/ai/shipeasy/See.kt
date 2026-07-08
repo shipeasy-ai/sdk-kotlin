@@ -2,7 +2,6 @@ package ai.shipeasy
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.logging.Logger
 
 /**
  * see — shipeasy error. Structured error reporting for the server SDK.
@@ -32,7 +31,7 @@ import java.util.logging.Logger
  */
 
 /** The single runtime source of `sdk_version` on every see() wire event. */
-const val VERSION: String = "0.11.0"
+const val VERSION: String = "0.12.0"
 
 // ---- Limits (mirror core.ts; kept in sync with the worker's /collect) ----
 internal const val SEE_MAX_MESSAGE = 500
@@ -46,8 +45,6 @@ internal const val SEE_MAX_PER_PROCESS = 25
 // Default consequence parts when a chain omits them.
 internal const val SEE_DEFAULT_SUBJECT = "app"
 internal const val SEE_DEFAULT_OUTCOME = "hit an error"
-
-private val seeLog = Logger.getLogger("shipeasy")
 
 private fun truncate(s: String, limit: Int): String = if (s.length <= limit) s else s.substring(0, limit)
 
@@ -301,7 +298,7 @@ fun setDefaultClient(client: Engine?) {
 fun see(problem: Any?): SeeChain {
     val c = defaultClient
     if (c == null) {
-        seeLog.warning("see() called before configure()/an Engine was created — error dropped")
+        Log.warn("see() called before configure()/an Engine was created — error dropped")
         return SeeChain(problem) { }
     }
     return c.see(problem)
@@ -311,7 +308,7 @@ fun see(problem: Any?): SeeChain {
 fun seeViolation(name: String): SeeChain {
     val c = defaultClient
     if (c == null) {
-        seeLog.warning("seeViolation() called before configure()/an Engine was created — error dropped")
+        Log.warn("seeViolation() called before configure()/an Engine was created — error dropped")
         return SeeChain(Violation(name)) { }
     }
     return c.seeViolation(name)

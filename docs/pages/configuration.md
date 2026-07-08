@@ -33,6 +33,7 @@ exactly once.
 | `privateAttributes` | `[]`                          | Attrs usable for targeting but stripped from outbound payloads. |
 | `stickyStore`       | `null`                        | Lock a unit to its first-assigned variant. |
 | `poll`              | `false`                       | `true` → fetch once and keep polling; `false` → one-shot fetch. |
+| `logLevel`          | `LogLevel.WARN`               | SDK log verbosity (`SILENT`, `ERROR`, `WARN`, `INFO`, `DEBUG`). |
 
 The full options table with types lives on the [Installation](installation.md)
 page — that page is the canonical home for `configure()`.
@@ -75,6 +76,36 @@ configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"), poll = true)
 With `poll = true` the SDK does the first fetch then refreshes in the background
 (interval driven by the server's `X-Poll-Interval` header, default 30s).
 Register an [`onChange`](advanced.md) listener to react to each refresh.
+
+## Fail-safe reads & the `logLevel` option
+
+Runtime reads never throw into your request path. `getFlag`, `getFlagDetail`,
+`getConfig`, `getExperiment`, `getKillswitch` and the fire-and-forget `track` /
+`logExposure` / `see()` calls each catch any unexpected error, log it, and return
+the documented safe default (flag → your default, config → your default,
+experiment → not-enrolled `control` with your params, killswitch → `false`,
+`track`/`logExposure` → no-op). So an evaluation problem degrades gracefully
+instead of taking down the request.
+
+Setup and lifecycle calls stay loud on purpose — constructing `Client(user)`
+before `configure()`, `configureForOffline(...)` with no source, or a bad
+snapshot path still throw, because those are boot-time misconfiguration you want
+surfaced.
+
+Control how much the SDK logs with `logLevel` (default `WARN`), ordered
+`SILENT < ERROR < WARN < INFO < DEBUG` — a message at level `L` is emitted only
+when the configured level is `>= L`:
+
+```kotlin
+import ai.shipeasy.LogLevel
+
+configure(
+    apiKey = System.getenv("SHIPEASY_SERVER_KEY"),
+    logLevel = LogLevel.SILENT,   // mute the SDK entirely
+)
+```
+
+Logging goes through `java.util.logging` under the logger name `"shipeasy"`.
 
 ## Environment variables
 

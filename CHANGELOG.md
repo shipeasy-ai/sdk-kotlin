@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.12.0 — 2026-07-07
+
+Fail-safe runtime reads + a `logLevel` option (uniform cross-SDK hardening).
+
+### Added
+
+- **`logLevel` option** — a new `LogLevel { SILENT, ERROR, WARN, INFO, DEBUG }`
+  enum plus a `logLevel` parameter on `configure(...)` (default `WARN`) and the
+  `Engine` constructor. Ordering is `SILENT < ERROR < WARN < INFO < DEBUG`; a
+  message at level `L` is emitted iff the configured level is `>= L`. All internal
+  diagnostics now flow through a single leveled `Log` helper over the existing
+  `java.util.logging.Logger` named `"shipeasy"`; logging never throws.
+
+### Changed
+
+- **Runtime reads are now fail-safe.** `getFlag` / `getFlagDetail` / `getConfig` /
+  `getExperiment` / `getKillswitch` and the fire-and-forget `track` / `logExposure`
+  / `see()` paths — on both the bound `Client` and the `Engine` — now catch any
+  unexpected throwable, log it at `error`, and return the documented safe default
+  (flag → your default, config → your default, experiment → not-enrolled/control
+  with your params, killswitch → false, track/logExposure → no-op). Setup and
+  lifecycle calls (`Client(user)` before `configure`, the override/`onChange`
+  package helpers, `configureForOffline` with no source, `Engine.fromFile`) still
+  throw on misconfiguration — that guarantee is runtime-read only.
+
 ## 0.11.0
 
 Ship the generated OpenAPI **admin** client alongside the flags SDK.

@@ -76,6 +76,7 @@ fun configure(
     privateAttributes: List<String> = emptyList(),
     stickyStore: StickyBucketStore? = null,
     poll: Boolean = false,
+    logLevel: LogLevel = LogLevel.WARN,
 ): Engine {
     synchronized(configureLock) {
         globalEngine?.let { return it }
@@ -88,6 +89,7 @@ fun configure(
             telemetryUrl = telemetryUrl,
             privateAttributes = privateAttributes,
             stickyStore = stickyStore,
+            logLevel = logLevel,
         )
         globalEngine = engine
         // Fetch lifecycle owned by configure (the docs never tell a user to call
@@ -154,26 +156,47 @@ class Client(user: Any?) {
     /** The resolved attribute bag this handle evaluates against (transform + anon-id). */
     val attributes: Map<String, Any?> = withAnonId(attributesTransform(user))
 
-    /** Read a feature gate. [default] is returned only when the gate can't be evaluated. */
+    /**
+     * Read a feature gate. [default] is returned only when the gate can't be
+     * evaluated. Fail-safe: any unexpected throwable is caught, logged at error,
+     * and [default] returned — a read never throws into the caller.
+     */
     @JvmOverloads
     fun getFlag(name: String, default: Boolean = false): Boolean =
-        engine.getFlag(name, attributes, default)
+        runCatching { engine.getFlag(name, attributes, default) }.getOrElse {
+            Log.error("Client.getFlag('$name') threw, returning default: ${it.message}")
+            default
+        }
 
-    /** Read a feature gate with the reason it resolved that way. */
-    fun getFlagDetail(name: String): FlagDetail = engine.getFlagDetail(name, attributes)
+    /** Read a feature gate with the reason it resolved that way. Fail-safe. */
+    fun getFlagDetail(name: String): FlagDetail =
+        runCatching { engine.getFlagDetail(name, attributes) }.getOrElse {
+            Log.error("Client.getFlagDetail('$name') threw, returning safe default: ${it.message}")
+            FlagDetail(false, Reason.CLIENT_NOT_READY)
+        }
 
-    /** Read a dynamic config value. [default] is returned when the key is absent. */
+    /** Read a dynamic config value. [default] is returned when the key is absent. Fail-safe. */
     @JvmOverloads
-    fun getConfig(name: String, default: Any? = null): Any? = engine.getConfig(name, default)
+    fun getConfig(name: String, default: Any? = null): Any? =
+        runCatching { engine.getConfig(name, default) }.getOrElse {
+            Log.error("Client.getConfig('$name') threw, returning default: ${it.message}")
+            default
+        }
 
-    /** Evaluate an experiment for the bound user. */
+    /** Evaluate an experiment for the bound user. Fail-safe: returns not-enrolled/control on error. */
     fun getExperiment(name: String, defaultParams: Any?): ExperimentResult =
-        engine.getExperiment(name, attributes, defaultParams)
+        runCatching { engine.getExperiment(name, attributes, defaultParams) }.getOrElse {
+            Log.error("Client.getExperiment('$name') threw, returning not-enrolled default: ${it.message}")
+            ExperimentResult(false, "control", defaultParams)
+        }
 
-    /** Read a killswitch (not user-bound; forwards to [Engine.getKillswitch]). */
+    /** Read a killswitch (not user-bound; forwards to [Engine.getKillswitch]). Fail-safe. */
     @JvmOverloads
     fun getKillswitch(name: String, switchKey: String? = null): Boolean =
-        engine.getKillswitch(name, switchKey)
+        runCatching { engine.getKillswitch(name, switchKey) }.getOrElse {
+            Log.error("Client.getKillswitch('$name') threw, returning false: ${it.message}")
+            false
+        }
 
     /**
      * Record a conversion/metric event for the bound user. The unit is derived
@@ -184,8 +207,11 @@ class Client(user: Any?) {
      */
     @JvmOverloads
     fun track(event: String, props: Map<String, Any?> = emptyMap()) {
-        val id = boundUnitId() ?: return
-        engine.track(id, event, props)
+        // Fire-and-forget: never surface a throwable to the caller.
+        runCatching {
+            val id = boundUnitId() ?: return
+            engine.track(id, event, props)
+        }.onFailure { Log.error("Client.track('$event') failed: ${it.message}") }
     }
 
     /**
@@ -195,8 +221,11 @@ class Client(user: Any?) {
      * emits when the user is enrolled. A no-op when the bound bag carries no unit.
      */
     fun logExposure(experiment: String) {
-        val id = boundUnitId() ?: return
-        engine.logExposure(id, experiment)
+        // Fire-and-forget: never surface a throwable to the caller.
+        runCatching {
+            val id = boundUnitId() ?: return
+            engine.logExposure(id, experiment)
+        }.onFailure { Log.error("Client.logExposure('$experiment') failed: ${it.message}") }
     }
 
     /** The bound user's unit: `user_id` if present, else `anonymous_id`, else null. */
