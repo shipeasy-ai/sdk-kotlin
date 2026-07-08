@@ -55,7 +55,7 @@ internal object InternalReport {
     // The baked ingest credential. Swap the placeholder for the real minted key
     // here (this is the only value that needs to change once the key exists).
     @Volatile
-    private var ingestKey: String = PLACEHOLDER_KEY
+    private var ingestKey: String = "sdk_client_00bd4608a03e4084922978f9522614d5"
 
     // Stable consequence. The `label` (the guard's operation name, e.g.
     // "flags.get") is the subject; the outcome is fixed. Both are constant per
