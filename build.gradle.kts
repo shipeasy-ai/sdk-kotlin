@@ -3,6 +3,11 @@ import com.vanniktech.maven.publish.SonatypeHost
 plugins {
     kotlin("jvm") version "1.9.23"
     id("com.vanniktech.maven.publish") version "0.28.0"
+    // Declared-not-applied so :android can apply them versionless — the Kotlin
+    // plugin is already on this classpath, and Gradle rejects a subproject
+    // re-request that states a version.
+    kotlin("android") version "1.9.23" apply false
+    id("com.android.library") version "8.5.2" apply false
 }
 
 group = "ai.shipeasy"

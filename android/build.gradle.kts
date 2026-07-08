@@ -4,11 +4,11 @@ import com.vanniktech.maven.publish.SonatypeHost
 // The Android client artifact: a SharedPreferences-backed AnonStore +
 // configureAndroid() convenience on top of the pure-JVM core (ai.shipeasy:
 // shipeasy-kotlin). Applies the Android Gradle plugin, so this module is only
-// included when an Android SDK is present (see settings.gradle.kts). Kotlin +
-// vanniktech versions resolve from the root plugins block; AGP is pinned here.
+// included when an Android SDK is present (see settings.gradle.kts). All plugin
+// versions resolve from the root plugins block — never state one here.
 plugins {
-    id("com.android.library") version "8.5.2"
-    kotlin("android") version "1.9.23"
+    id("com.android.library")
+    kotlin("android")
     id("com.vanniktech.maven.publish")
 }
 
