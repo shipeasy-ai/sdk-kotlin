@@ -38,6 +38,17 @@ heavyweight object: `overrideFlag` / `overrideConfig` / `overrideExperiment` /
 `clearOverrides`, `onChange`, `bootstrapScriptTag` / `i18nScriptTag`, and the
 `see()` family.
 
+## Shipping in an Android app? Use `ShipeasyClient`
+
+`configure()` / `Client(user)` above is the **server** SDK — it holds a server
+key and evaluates rules locally. **Never embed a server key in a shipped app.**
+For an Android app, use `configureAndroid(context, clientKey)` +
+`ShipeasyClient`: a **public client key**, server-side evaluation over
+`POST /sdk/evaluate`, and a **persisted device `anonymous_id`** so logged-out
+users bucket identically across launches. It ships in the companion artifact
+`ai.shipeasy:shipeasy-kotlin-android`; the core jar stays pure-JVM (Ktor / Spring
+/ http4k servers are unaffected). See [Installation](installation.md#native-mobile-client--android-shipeasyclient).
+
 ## Feature reference
 
 - [Installation](installation.md) — Gradle/Maven dependency, runtime, imports, and the canonical `configure()` reference.

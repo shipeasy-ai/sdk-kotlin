@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.14.0 — 2026-07-08
+
+### Added
+
+- **Native mobile client (`ShipeasyClient`).** A first-class **client-key** SDK
+  for Android (and any JVM client app), alongside the existing server-key
+  `configure()` / `Client(user)` surface. It holds a **public client key** (safe
+  to embed in an app binary — a server key never is), evaluates a single device
+  user server-side over `POST /sdk/evaluate`, and caches the returned assignments
+  for cheap local reads. Front door:
+
+  ```kotlin
+  configureClient(clientKey = "pk_live_…", store = myAnonStore) // once, at launch
+  shipeasyClient()?.identify(mapOf("user_id" to "u_123"))       // suspend: evaluate + cache
+  val on = shipeasyClient()?.getFlag("new_checkout") ?: false   // cheap cache read
+  ```
+
+  `ShipeasyClient` exposes `identify` / `reset` / `refreshAssignments` (suspend),
+  the reads `getFlag` / `getConfig` / `getExperiment` / `getKillswitch`, and
+  `track` / `logExposure`.
+
+- **Persistent device `anonymous_id` (`AnonStore`).** The client resolves a
+  stable anonymous bucketing id once and **persists it across app launches**, so
+  a logged-out visitor buckets identically on every cold start (without this a
+  fresh UUID per launch silently re-buckets every fractional rollout and
+  experiment). The core stays pure-JVM: supply any `AnonStore` (an
+  `InMemoryAnonStore` ships for tests). Sticky-bucketing state from the edge is
+  persisted and echoed back on each evaluation.
+
+- **New `ai.shipeasy:shipeasy-kotlin-android` artifact.** An Android companion
+  that provides `SharedPreferencesAnonStore` and a one-call
+  `configureAndroid(context, clientKey)`. The core `shipeasy-kotlin` jar remains
+  pure-JVM and Android-free; the Android artifact (built with the Android Gradle
+  plugin) is a thin adapter. Server (Ktor/Spring/http4k) users are unaffected.
+
 ## 0.13.0 — 2026-07-08
 
 ### Added

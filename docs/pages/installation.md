@@ -221,31 +221,77 @@ fun main() {
 }
 ```
 
-### Android
+---
 
-Configure once in `Application.onCreate()`; bind a `Client` wherever you have the
-signed-in user. There is no request scope, so pass the user explicitly.
+## Native mobile client — Android (`ShipeasyClient`)
+
+Everything above is the **server** SDK: it holds a server key, pulls the raw
+rules and evaluates locally. **Never embed a server key in a shipped app** — it
+grants read access to all of your targeting rules, and the edge blocks client
+keys from the server-only blob routes anyway.
+
+For an Android app, use `ShipeasyClient` with your **public client key** (`pk_…`,
+safe to ship). It evaluates one device user server-side over `POST /sdk/evaluate`
+and caches the assignments for cheap local reads. Crucially it **persists the
+device `anonymous_id` across launches**, so a logged-out user buckets identically
+on every cold start.
+
+Add the Android companion artifact (a thin adapter over the pure-JVM core):
+
+```kotlin
+implementation("ai.shipeasy:shipeasy-kotlin-android:0.14.0")
+```
+
+Configure once in `Application.onCreate()` — `configureAndroid` wires
+SharedPreferences-backed persistence for you:
 
 ```kotlin
 import android.app.Application
-import ai.shipeasy.configure
-import ai.shipeasy.Client
+import ai.shipeasy.android.configureAndroid
+import ai.shipeasy.shipeasyClient
 
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
-        configure(
-            apiKey = BuildConfig.SHIPEASY_SERVER_KEY,
-            attributes = { u -> mapOf("user_id" to (u as Account).id) },
-            poll = true,
-        )
+        // PUBLIC client key (pk_…) — safe to embed in the app.
+        configureAndroid(this, clientKey = BuildConfig.SHIPEASY_CLIENT_KEY)
     }
 }
-
-// Anywhere with the current user:
-val flags = Client(currentAccount)
-if (flags.getFlag("new_checkout")) showNewCheckout()
 ```
 
-> On a mobile client, treat the embedded key as **public** — use a public client
-> key, not a privileged server key.
+Then, from a coroutine (e.g. a `ViewModel`), bind the user and read:
+
+```kotlin
+import ai.shipeasy.shipeasyClient
+
+// identify() is a suspend fun — it does the /sdk/evaluate round-trip and caches.
+// Call with an empty map for a logged-out visitor; again on login.
+shipeasyClient()?.identify(mapOf("user_id" to userId, "plan" to "pro"))
+
+// Reads serve the cached assignments (no per-call network; safe on any thread):
+val on   = shipeasyClient()?.getFlag("new_checkout") ?: false
+val exp  = shipeasyClient()?.getExperiment("checkout_button", defaultParams = null)
+shipeasyClient()?.logExposure("checkout_button")
+shipeasyClient()?.track("purchase", mapOf("amount" to 49))
+shipeasyClient()?.reset()   // logout: keep the device anon id, drop user_id
+```
+
+### Custom persistence / non-Android JVM clients
+
+`configureAndroid` is a convenience. The core `ai.shipeasy:shipeasy-kotlin` jar is
+pure-JVM and Android-free — configure the client directly with any `AnonStore`
+(back it with EncryptedSharedPreferences, DataStore, or your own storage):
+
+```kotlin
+import ai.shipeasy.AnonStore
+import ai.shipeasy.configureClient
+
+val store = object : AnonStore {
+    override fun get(key: String): String? = /* read from your storage */ null
+    override fun set(key: String, value: String) { /* persist */ }
+}
+configureClient(clientKey = "pk_live_…", store = store)
+```
+
+The stable device id is readable as `shipeasyClient()?.anonymousId`. See
+[Advanced](advanced.md) for the anon-id persistence contract.

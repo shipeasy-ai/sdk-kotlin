@@ -59,6 +59,34 @@ the browser SDK buckets identically; a request with **no** unit still resolves a
 fully-rolled (100%) gate as on. Cookie name + format are a cross-SDK contract —
 see `18-identity-bucketing.md`.
 
+### Anonymous id in a mobile app (`AnonStore`)
+
+`AnonIdFilter` is for a **server** request. A shipped Android/JVM client app has
+no request cookie — `ShipeasyClient` (see [Installation](installation.md#native-mobile-client--android-shipeasyclient))
+instead **persists** the device's `__se_anon_id` so bucketing is stable across
+app launches. Without persistence a fresh UUID every cold start silently
+re-buckets every fractional rollout and experiment.
+
+The core `shipeasy-kotlin` jar is pure-JVM and Android-free, so persistence is a
+pluggable `AnonStore` (`get`/`set`, synchronous, best-effort). On Android, the
+`ai.shipeasy:shipeasy-kotlin-android` artifact supplies
+`SharedPreferencesAnonStore` and a one-call `configureAndroid(context, clientKey)`;
+elsewhere pass your own:
+
+```kotlin
+import ai.shipeasy.AnonStore
+import ai.shipeasy.configureClient
+
+val store = object : AnonStore {
+    override fun get(key: String): String? = /* read from your storage */ null
+    override fun set(key: String, value: String) { /* persist */ }
+}
+configureClient(clientKey = "pk_live_…", store = store)
+```
+
+An `InMemoryAnonStore` ships for tests. The stable id is readable as
+`shipeasyClient()?.anonymousId`.
+
 ## Manual exposure
 
 The server is stateless and never auto-logs. Call `logExposure` where you

@@ -1,17 +1,49 @@
 ---
 name: shipeasy-kotlin
-description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Kotlin/JVM. Covers configure() + Client(user), getFlag/getConfig/getExperiment/getKillswitch, track, see() error reporting, testing, and OpenFeature availability.
+description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Kotlin/JVM. Covers configure() + Client(user) on servers, ShipeasyClient + configureAndroid for shipped Android apps, getFlag/getConfig/getExperiment/getKillswitch, track, see() error reporting, testing.
 ---
 
 # Shipeasy Kotlin SDK
 
-Server-side SDK for the JVM. Evaluates flags, configs, kill switches and
-experiments **locally** against rule blobs fetched from the edge.
+Two front doors on the JVM. **`configure()` + `Client(user)`** is the server SDK
+(server key, evaluates rules locally — never embed a server key in a shipped
+app). **`configureAndroid()`/`configureClient()` + `ShipeasyClient`** is the
+native client for shipped Android apps (public client key, server-side eval over
+`/sdk/evaluate`, persisted device anon id).
 
 > The documented surface is exactly **`configure()`** (setup) and the bound
 > **`Client(user)`** (use), plus the package-level helpers below. For deeper docs,
 > fetch any page/snippet from the manifest at
 > <https://shipeasy-ai.github.io/sdk-kotlin/manifest.json> (raw URLs below).
+
+## Native Android app? ShipeasyClient (client key)
+
+```kotlin
+// build.gradle.kts — Android companion artifact (thin adapter over the core jar):
+implementation("ai.shipeasy:shipeasy-kotlin-android:0.14.0")
+```
+
+```kotlin
+import ai.shipeasy.android.configureAndroid
+import ai.shipeasy.shipeasyClient
+
+// Once, in Application.onCreate — PUBLIC client key (pk_…), safe to embed.
+// Persists the device anonymous_id across launches (stable bucketing on cold start).
+configureAndroid(this, clientKey = BuildConfig.SHIPEASY_CLIENT_KEY)
+
+// From a coroutine (identify is a suspend fun: /sdk/evaluate round-trip + cache):
+shipeasyClient()?.identify(mapOf("user_id" to userId, "plan" to "pro"))
+val on = shipeasyClient()?.getFlag("new_checkout") ?: false     // cheap cache read
+shipeasyClient()?.logExposure("checkout_button")
+shipeasyClient()?.track("purchase", mapOf("amount" to 49))
+shipeasyClient()?.reset()   // logout: keep device anon id, drop user_id
+```
+
+Non-Android JVM client, or custom persistence (EncryptedSharedPreferences /
+DataStore): `configureClient(clientKey, store = <your AnonStore>)`. Reference:
+<https://shipeasy-ai.github.io/sdk-kotlin/pages/installation.md>
+
+The rest of this skill covers the **server** SDK (`configure()` + `Client`).
 
 ## Install
 

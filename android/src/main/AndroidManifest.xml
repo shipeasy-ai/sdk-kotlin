@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Namespace is declared in build.gradle.kts (android.namespace); this library
+     adds no components, permissions, or resources — just Kotlin. -->
+<manifest />
