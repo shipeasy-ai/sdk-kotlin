@@ -74,7 +74,7 @@ class ClientModeTest {
         val c = client(InMemoryAnonStore(), stub)
         assertFalse(c.getFlag("f"))
         assertNull(c.getConfig("cfg"))
-        assertFalse(c.getExperiment("e").inExperiment)
+        assertFalse(c.universe("checkout").assign().enrolled)
         assertFalse(c.getKillswitch("k"))
     }
 
@@ -82,7 +82,8 @@ class ClientModeTest {
     fun identifyEvaluatesAndCaches() = runBlocking {
         val stub = StubTransport(
             """{"flags":{"new_ui":true},"configs":{"theme":{"accent":"blue"}},""" +
-                """"experiments":{"exp1":{"inExperiment":true,"group":"treatment","params":{"copy":"hi"}}},""" +
+                """"experiments":{"exp1":{"inExperiment":true,"group":"treatment","params":{"copy":"hi"},"universe":"checkout"}},""" +
+                """"universes":{"checkout":{"defaults":{"copy":"default"}}},""" +
                 """"killswitches":{"payments":true}}""",
         )
         val c = client(InMemoryAnonStore(), stub)
@@ -92,9 +93,12 @@ class ClientModeTest {
         @Suppress("UNCHECKED_CAST")
         val theme = c.getConfig("theme") as? Map<String, Any?>
         assertEquals("blue", theme?.get("accent"))
-        val e = c.getExperiment("exp1")
-        assertTrue(e.inExperiment)
-        assertEquals("treatment", e.group)
+        val a = c.universe("checkout").assign()
+        assertTrue(a.enrolled)
+        assertEquals("treatment", a.group)
+        assertEquals("exp1", a.name)
+        // Edge pre-merges universe defaults into params; the variant value wins.
+        assertEquals("hi", a.get("copy"))
         assertTrue(c.getKillswitch("payments"))
     }
 

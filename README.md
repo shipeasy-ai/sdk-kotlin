@@ -68,7 +68,7 @@ Constructing `Client(user)` before `configure()` throws.
 | [Feature flags](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/flags.md) | `getFlag`, `getFlagDetail`, defaults. |
 | [Dynamic configs](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/configs.md) | `getConfig`, typed reads, defaults. |
 | [Kill switches](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/killswitches.md) | `getKillswitch`, named switches. |
-| [Experiments](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/experiments.md) | `getExperiment`, `logExposure`, `track`. |
+| [Experiments](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/experiments.md) | `universe(name).assign()`, `Assignment`, `track`. |
 | [Internationalization](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/i18n.md) | SSR bootstrap + i18n loader tags. |
 | [Error reporting](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/error-reporting.md) | `see()` structured error reporting. |
 | [Testing](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/testing.md) | `configureForTesting` / `configureForOffline`, overrides. |
@@ -90,19 +90,11 @@ import ai.shipeasy.Client
 configureForTesting(
     flags = mapOf("new_checkout" to true),                    // name to Boolean
     configs = mapOf("billing_copy" to "Pay now"),             // name to value
-    experiments = mapOf(                                      // name to (group to params)
-        "checkout_button" to ("treatment" to mapOf("color" to "green")),
-    ),
 )
 
 val flags = Client(mapOf("user_id" to "u_123"))
 flags.getFlag("new_checkout")                 // → true
 flags.getConfig("billing_copy")               // → "Pay now"
-
-val r = flags.getExperiment("checkout_button", defaultParams = null)
-r.inExperiment   // true
-r.group          // "treatment"
-r.params         // {color=green}
 ```
 
 More — the on-the-spot override helpers and a working example snapshot file — on

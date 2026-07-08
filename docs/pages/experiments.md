@@ -1,46 +1,64 @@
-# Experiments (A/B tests)
+# A/B experiments (`universe().assign()` + `track`)
 
-`getExperiment(name, defaultParams)` assigns the user to a variant and returns
-an `ExperimentResult`.
+Experiments are read by **universe**. A universe is a mutual-exclusion pool: a
+unit lands in **at most one** experiment in it. `assign()` picks that experiment
+(if any), returns the assigned group plus its resolved parameters, and auto-logs
+a single exposure. You read parameters with `assign().get(field, fallback)` and
+record a conversion with `track`.
 
-## `ExperimentResult`
+## Read an experiment
 
 ```kotlin
-data class ExperimentResult(
-    val inExperiment: Boolean,   // is the user enrolled?
-    val group: String,           // assigned group/variant name
-    val params: Any?,            // variant parameters (your typed payload)
-)
+import ai.shipeasy.Client
+
+val flags = Client(currentUser) // construct once per user (cheap)
+
+// Ask the UNIVERSE, not the experiment: the unit lands in ≤1 experiment in it.
+val cta = flags.universe("hero_cta").assign()
+
+// Read a param: variant override ?? universe default ?? your fallback.
+render(cta.get("primary_label", "Sign up"))
 ```
 
-## Bound `Client` form
+On the **server** the user is bound at construction, so `assign()` takes no
+argument.
+
+## `Assignment`
 
 ```kotlin
-val flags = Client(currentUser)
-
-val r = flags.getExperiment("checkout_button", mapOf("color" to "blue"))
-if (r.inExperiment) {
-    @Suppress("UNCHECKED_CAST")
-    val params = r.params as? Map<String, Any?> ?: emptyMap()
-    val color = params["color"]   // variant param
+class Assignment {
+    val name: String?      // the experiment the unit landed in, or null when not enrolled
+    val group: String?     // the assigned variant, or null when not enrolled
+    val enrolled: Boolean  // == (group != null)
+    fun get(field: String, fallback: Any? = null): Any? // variant ?? universe default ?? fallback
 }
 ```
 
-The second argument is `defaultParams`: returned as `params` when the experiment
-yields no params (e.g. not enrolled / not loaded). Pass `null` for none.
-
-## Tracking conversions — `track(...)`
-
-Record a conversion / success event so the experiment can compute lift. Use the
-bound **`Client`** you already hold from `getExperiment` — the unit is derived
-from the bound attribute bag (`user_id`, else `anonymous_id`), so there is no
-user argument:
+When the unit isn't enrolled (targeting / holdout / allocation), `enrolled` is
+`false`, `group` and `name` are `null`, and `get(field, fallback)` returns the
+universe default if there is one, else your `fallback` — so reading a param is
+always safe.
 
 ```kotlin
-val flags = Client(currentUser)
+val cta = flags.universe("hero_cta").assign()
+if (cta.enrolled) {
+    // cta.group is the variant, e.g. "treatment"
+}
+val label = cta.get("primary_label", "Sign up") // never throws
+```
 
-val r = flags.getExperiment("checkout_button", mapOf("color" to "blue"))
-// …present the treatment…
+`get` returns `Any?`; cast to the type you stored (e.g.
+`cta.get("primary_label") as? String`).
+
+## Track conversions
+
+Record the success event so the analysis pipeline can compute lift. Conversion
+events are attributed to the bound user. You already have a `Client` — call
+`track` on the **same handle**, so an experiment is end-to-end Client-only (the
+unit is derived from the bound attributes: `user_id`, else `anonymous_id`):
+
+```kotlin
+// Same bound Client you assigned with — no user arg.
 flags.track("{{SUCCESS_EVENT}}", mapOf("amount" to 49))
 ```
 
@@ -52,16 +70,22 @@ flags.track("{{SUCCESS_EVENT}}", mapOf("amount" to 49))
 when the bound bag carries no unit, and under `configureForTesting` /
 `configureForOffline`.
 
-## Manual exposure — `logExposure(...)`
+## Iterating over many users
 
-The server is stateless and never auto-logs exposures. Call `logExposure` on the
-bound **`Client`** at the point you actually present the treatment so the
-experiment counts the exposure (no user argument — the unit comes from the bound
-bag):
+When you don't have a single bound user — e.g. a batch job scoring many users —
+construct a fresh `Client` per user inside the loop. It's cheap (it delegates to
+the configuration built once at startup; it opens no connection):
 
 ```kotlin
-flags.logExposure("checkout_button")
+for (user in users) {
+    val flags = Client(user) // construct once per user (cheap)
+    val cta = flags.universe("hero_cta").assign()
+    flags.track("{{SUCCESS_EVENT}}", mapOf("group" to (cta.group ?: "none")))
+}
 ```
 
-It re-evaluates the experiment for the bound user and POSTs a single `exposure`
-event only if the user is enrolled (no-op otherwise, and in test mode).
+## Exposure logging
+
+By default `assign()` auto-logs a single (deduped) exposure when the unit is
+enrolled. The server always auto-logs on enrolment — there is no
+read-without-exposure form. See [Advanced](advanced.md).

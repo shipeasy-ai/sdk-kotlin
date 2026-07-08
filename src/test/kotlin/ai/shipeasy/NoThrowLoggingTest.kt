@@ -60,14 +60,14 @@ class NoThrowLoggingTest {
         // Direct engine reads for absent entities also stay safe.
         assertEquals("fallback", engine.getConfig("missing", "fallback"))
         assertFalse(engine.getKillswitch("missing"))
-        val exp = client.getExperiment("missing", mapOf("p" to 1))
-        assertFalse(exp.inExperiment)
-        assertEquals("control", exp.group)
-        assertEquals(mapOf("p" to 1), exp.params)
+        // Universe-first read: an absent universe resolves to a not-enrolled
+        // assignment with no defaults — never throws, and get() falls back.
+        val a = client.universe("missing").assign()
+        assertFalse(a.enrolled)
+        assertEquals("fb", a.get("p", "fb"))
 
         // Fire-and-forget writes never throw.
         client.track("checkout")
-        client.logExposure("missing")
     }
 
     @Test

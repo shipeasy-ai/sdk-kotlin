@@ -105,15 +105,30 @@ class ConfigureClientTest {
         }
     }
 
+    // A running experiment in universe "u" so an override on it surfaces through
+    // universe("u").assign() (assign iterates the loaded experiments blob).
+    private fun expsBlob(): Map<String, Any?> = mapOf(
+        "universes" to mapOf("u" to mapOf("holdout_range" to null)),
+        "experiments" to mapOf(
+            "checkout_button" to mapOf(
+                "universe" to "u",
+                "allocationPct" to 10000,
+                "salt" to "s",
+                "status" to "running",
+                "groups" to listOf(mapOf("name" to "control", "weight" to 10000, "params" to emptyMap<String, Any?>())),
+            ),
+        ),
+    )
+
     @Test
-    fun getExperimentForwardsBoundUser() {
-        val engine = Engine.forTesting()
+    fun assignForwardsBoundUser() {
+        val engine = Engine.fromSnapshot(mapOf("gates" to emptyMap<String, Any?>()), expsBlob())
         engine.overrideExperiment("checkout_button", group = "treatment", params = mapOf("color" to "green"))
         installEngineForTests(engine)
-        val r = Client(mapOf("user_id" to "u_1")).getExperiment("checkout_button", null)
-        assertTrue(r.inExperiment)
-        assertEquals("treatment", r.group)
-        assertEquals(mapOf("color" to "green"), r.params)
+        val a = Client(mapOf("user_id" to "u_1")).universe("u").assign()
+        assertTrue(a.enrolled)
+        assertEquals("treatment", a.group)
+        assertEquals("green", a.get("color"))
     }
 
     @Test
@@ -171,13 +186,26 @@ class ConfigureClientTest {
     }
 
     @Test
-    fun boundClientLogExposureForwardsBoundUserId() {
-        // logExposure re-evaluates the experiment for the derived id; an override
-        // makes the user "enrolled" so the exposure event fires.
+    fun boundClientAssignAutoLogsExposure() {
+        // universe(u).assign() auto-logs a single exposure when enrolled; an
+        // override makes the user "enrolled" so the exposure event fires.
         val sent = captureEvents { engine ->
+            // Seed a real running experiment in universe "u" so assign finds it.
+            engine.applyDataForTest(
+                flags = mapOf("gates" to emptyMap<String, Any?>()),
+                experiments = mapOf(
+                    "universes" to mapOf("u" to mapOf("holdout_range" to null)),
+                    "experiments" to mapOf(
+                        "price_test" to mapOf(
+                            "universe" to "u", "allocationPct" to 10000, "salt" to "s", "status" to "running",
+                            "groups" to listOf(mapOf("name" to "control", "weight" to 10000, "params" to emptyMap<String, Any?>())),
+                        ),
+                    ),
+                ),
+            )
             engine.overrideExperiment("price_test", group = "treatment", params = null)
             installEngineForTests(engine)
-            Client(mapOf("user_id" to "u_9")).logExposure("price_test")
+            Client(mapOf("user_id" to "u_9")).universe("u").assign()
         }
         val ev = sent.single()
         assertEquals("exposure", ev["type"])

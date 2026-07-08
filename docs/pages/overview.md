@@ -25,8 +25,8 @@ You learn exactly two things:
 1. **`configure()`** (and its test/offline siblings `configureForTesting()` /
    `configureForOffline()`) — call it once at app boot.
 2. **`Client(user)`** — the cheap, user-bound handle for every read:
-   `getFlag` / `getFlagDetail` / `getConfig` / `getKillswitch` / `getExperiment`
-   / `track` / `logExposure`.
+   `getFlag` / `getFlagDetail` / `getConfig` / `getKillswitch` /
+   `universe(name).assign()` / `track`.
 
 The user (and the `attributes` transform you register at configure time) is bound
 when you construct the `Client`, so its methods take no user argument. Construct a
@@ -56,7 +56,7 @@ users bucket identically across launches. It ships in the companion artifact
 - [Flags](flags.md) — `getFlag` / `getFlagDetail`.
 - [Configs](configs.md) — `getConfig`.
 - [Kill switches](killswitches.md) — `getKillswitch`.
-- [Experiments](experiments.md) — `getExperiment`, `ExperimentResult`, `track`, `logExposure`.
+- [Experiments](experiments.md) — `universe(name).assign()`, `Assignment`, `track`.
 - [i18n](i18n.md) — SSR bootstrap + the client-side translation story.
 - [Error reporting](error-reporting.md) — `see()` structured error reporting.
 - [Testing](testing.md) — `configureForTesting()` / `configureForOffline()` + the override helpers.

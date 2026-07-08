@@ -81,12 +81,12 @@ Register an [`onChange`](advanced.md) listener to react to each refresh.
 ## Fail-safe reads & the `logLevel` option
 
 Runtime reads never throw into your request path. `getFlag`, `getFlagDetail`,
-`getConfig`, `getExperiment`, `getKillswitch` and the fire-and-forget `track` /
-`logExposure` / `see()` calls each catch any unexpected error, log it, and return
-the documented safe default (flag → your default, config → your default,
-experiment → not-enrolled `control` with your params, killswitch → `false`,
-`track`/`logExposure` → no-op). So an evaluation problem degrades gracefully
-instead of taking down the request.
+`getConfig`, `universe(name).assign()`, `getKillswitch` and the fire-and-forget
+`track` / `see()` calls each catch any unexpected error, log it, and return the
+documented safe default (flag → your default, config → your default, assign →
+not-enrolled `Assignment` that resolves `get()` to the universe default/your
+fallback, killswitch → `false`, `track` → no-op). So an evaluation problem
+degrades gracefully instead of taking down the request.
 
 Setup and lifecycle calls stay loud on purpose — constructing `Client(user)`
 before `configure()`, `configureForOffline(...)` with no source, or a bad

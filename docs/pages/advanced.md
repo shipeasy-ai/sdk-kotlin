@@ -17,7 +17,7 @@ configure(
 
 ## Sticky bucketing
 
-Pass a `StickyBucketStore` so `getExperiment` locks a unit to its
+Pass a `StickyBucketStore` so `universe(name).assign()` locks a unit to its
 first-assigned variant — changing allocation % or weights won't re-bucket
 enrolled units (changing the experiment salt is the reshuffle lever). Absent ⇒
 deterministic (fully backward compatible). A built-in in-memory store is
@@ -87,17 +87,21 @@ configureClient(clientKey = "pk_live_…", store = store)
 An `InMemoryAnonStore` ships for tests. The stable id is readable as
 `shipeasyClient()?.anonymousId`.
 
-## Manual exposure
+## Exposure logging
 
-The server is stateless and never auto-logs. Call `logExposure` where you
-present the treatment. The bound `Client` derives the unit from the bound user:
+`universe(name).assign()` auto-logs a single, deduped exposure when the unit is
+enrolled — you don't call anything separately. The unit is derived from the bound
+`Client` (its `user_id`, else `anonymous_id`):
 
 ```kotlin
 val flags = Client(currentUser)
-flags.logExposure("checkout_button")
+flags.universe("hero_cta").assign() // enrolled → one deduped exposure fires
 ```
 
-See [Experiments](experiments.md).
+Repeated `assign()` calls for the same `(unit, experiment, group)` collapse to a
+single exposure per process. On the server, `assign()` always auto-logs on
+enrolment — there is no read-without-exposure form. See
+[Experiments](experiments.md).
 
 ## Change listeners — `onChange`
 

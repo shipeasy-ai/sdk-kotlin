@@ -7,6 +7,23 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TestUtilitiesTest {
+    // A running 100%-allocated experiment in universe "u" so an override on it can
+    // surface through universe("u").assign() (assign iterates the loaded blob).
+    private fun expsBlob(): Map<String, Any?> = mapOf(
+        "universes" to mapOf("u" to mapOf("holdout_range" to null)),
+        "experiments" to mapOf(
+            "checkout_button" to mapOf(
+                "universe" to "u",
+                "allocationPct" to 10000,
+                "salt" to "s",
+                "status" to "running",
+                "groups" to listOf(mapOf("name" to "control", "weight" to 10000, "params" to mapOf("color" to "blue"))),
+            ),
+        ),
+    )
+
+    private fun emptyFlags(): Map<String, Any?> = mapOf("gates" to emptyMap<String, Any?>(), "configs" to emptyMap<String, Any?>())
+
     // forTesting() builds a usable, no-network client with no API key. Defaults
     // apply when nothing is overridden.
     @Test
@@ -14,8 +31,9 @@ class TestUtilitiesTest {
         Engine.forTesting().use { c ->
             assertFalse(c.getFlag("anything", mapOf("user_id" to "u1")))
             assertNull(c.getConfig("anything"))
-            val r = c.getExperiment("anything", mapOf("user_id" to "u1"), null)
-            assertFalse(r.inExperiment)
+            // No blob ⇒ not enrolled anywhere.
+            val a = c.universe("anything").assign(mapOf("user_id" to "u1"))
+            assertFalse(a.enrolled)
         }
     }
 
@@ -46,32 +64,33 @@ class TestUtilitiesTest {
         }
     }
 
-    // overrideExperiment makes getExperiment return inExperiment with the seeded
-    // group and params.
+    // overrideExperiment makes universe(u).assign() enrol in the seeded group and
+    // params (the override wins over the blob's real allocation).
     @Test
     fun overrideExperimentWins() {
-        Engine.forTesting().use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
             c.overrideExperiment("checkout_button", "treatment", mapOf("color" to "green"))
-            val r = c.getExperiment("checkout_button", emptyMap(), mapOf("color" to "blue"))
-            assertTrue(r.inExperiment)
-            assertEquals("treatment", r.group)
-            assertEquals(mapOf("color" to "green"), r.params)
+            val a = c.universe("u").assign(mapOf("user_id" to "u1"))
+            assertTrue(a.enrolled)
+            assertEquals("treatment", a.group)
+            assertEquals("green", a.get("color"))
         }
     }
 
-    // clearOverrides resets every override back to defaults.
+    // clearOverrides resets every override back to the blob/defaults.
     @Test
     fun clearOverridesResets() {
-        Engine.forTesting().use { c ->
+        Engine.fromSnapshot(emptyFlags(), expsBlob()).use { c ->
             c.overrideFlag("f", true)
             c.overrideConfig("cfg", "v")
-            c.overrideExperiment("exp", "t", mapOf("a" to 1))
+            c.overrideExperiment("checkout_button", "treatment", mapOf("color" to "green"))
 
             c.clearOverrides()
 
             assertFalse(c.getFlag("f", emptyMap()))
             assertNull(c.getConfig("cfg"))
-            assertFalse(c.getExperiment("exp", emptyMap(), null).inExperiment)
+            // Override gone ⇒ falls back to the blob's real group (control).
+            assertEquals("control", c.universe("u").assign(mapOf("user_id" to "u1")).group)
         }
     }
 

@@ -188,12 +188,25 @@ class Client(user: Any?) {
             default
         }
 
-    /** Evaluate an experiment for the bound user. Fail-safe: returns not-enrolled/control on error. */
-    fun getExperiment(name: String, defaultParams: Any?): ExperimentResult =
-        runCatching { engine.getExperiment(name, attributes, defaultParams) }.getOrElse {
-            Log.error("Client.getExperiment('$name') threw, returning not-enrolled default: ${it.message}")
-            ExperimentResult(false, "control", defaultParams)
-        }
+    /**
+     * Assign the bound user within a universe: `universe("checkout").assign()`. A
+     * universe is a mutual-exclusion pool, so the unit lands in ≤1 experiment; the
+     * returned [Assignment] exposes `.group` / `.get(field, fallback)` and
+     * auto-logs one exposure when enrolled. An un-enrolled unit still resolves
+     * `get()` to the universe defaults. This is the sole experiment read path —
+     * there is no `getExperiment` (ask a universe, not an experiment). The user is
+     * bound at construction, so `assign()` takes no argument. Fail-safe.
+     */
+    fun universe(name: String): BoundUniverseHandle = BoundUniverseHandle(name)
+
+    /** Reusable per-universe handle bound to this [Client]'s user; `assign()` takes no arg. */
+    inner class BoundUniverseHandle internal constructor(private val universeName: String) {
+        fun assign(): Assignment =
+            runCatching { engine.assignUniverse(universeName, attributes) }.getOrElse {
+                Log.error("Client.universe('$universeName').assign() threw, returning not-enrolled default: ${it.message}")
+                Assignment(null, null, emptyMap())
+            }
+    }
 
     /** Read a killswitch (not user-bound; forwards to [Engine.getKillswitch]). Fail-safe. */
     @JvmOverloads
@@ -217,20 +230,6 @@ class Client(user: Any?) {
             val id = boundUnitId() ?: return
             engine.track(id, event, props)
         }.onFailure { Log.error("Client.track('$event') failed: ${it.message}") }
-    }
-
-    /**
-     * Emit an exposure event for [experiment] for the bound user (parity with the
-     * browser's auto-exposure). The unit is derived from the bound attribute bag;
-     * no user arg. Forwards to [Engine.logExposure], which re-evaluates and only
-     * emits when the user is enrolled. A no-op when the bound bag carries no unit.
-     */
-    fun logExposure(experiment: String) {
-        // Fire-and-forget: never surface a throwable to the caller.
-        runCatching {
-            val id = boundUnitId() ?: return
-            engine.logExposure(id, experiment)
-        }.onFailure { Log.error("Client.logExposure('$experiment') failed: ${it.message}") }
     }
 
     /** The bound user's unit: `user_id` if present, else `anonymous_id`, else null. */

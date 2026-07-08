@@ -1,6 +1,6 @@
 ---
 name: shipeasy-kotlin
-description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Kotlin/JVM. Covers configure() + Client(user) on servers, ShipeasyClient + configureAndroid for shipped Android apps, getFlag/getConfig/getExperiment/getKillswitch, track, see() error reporting, testing.
+description: Use Shipeasy (feature flags, configs, kill switches, A/B experiments, i18n) from Kotlin/JVM. Covers configure() + Client(user) on servers, ShipeasyClient + configureAndroid for shipped Android apps, getFlag/getConfig/universe(name).assign()/getKillswitch, track, see() error reporting, testing.
 ---
 
 # Shipeasy Kotlin SDK
@@ -34,7 +34,7 @@ configureAndroid(this, clientKey = BuildConfig.SHIPEASY_CLIENT_KEY)
 // From a coroutine (identify is a suspend fun: /sdk/evaluate round-trip + cache):
 shipeasyClient()?.identify(mapOf("user_id" to userId, "plan" to "pro"))
 val on = shipeasyClient()?.getFlag("new_checkout") ?: false     // cheap cache read
-shipeasyClient()?.logExposure("checkout_button")
+val cta = shipeasyClient()?.universe("hero_cta")?.assign()      // Assignment (auto-logs exposure)
 shipeasyClient()?.track("purchase", mapOf("amount" to 49))
 shipeasyClient()?.reset()   // logout: keep device anon id, drop user_id
 ```
@@ -80,12 +80,16 @@ Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/configuration.md> ·
 
 ## Experiments + track (Client-only, end to end)
 
+Experiments are read by UNIVERSE (a mutual-exclusion pool — the unit lands in ≤1
+experiment). `assign()` picks it, resolves params, and auto-logs one exposure.
+
 ```kotlin
 val flags = Client(currentUser)                     // construct once per callsite
-val r = flags.getExperiment("checkout_button", mapOf("color" to "blue"))
-// r.inExperiment: Boolean, r.group: String, r.params: Any?
+val cta = flags.universe("hero_cta").assign()       // Assignment
+// cta.name: String? (experiment), cta.group: String?, cta.enrolled: Boolean
+// cta.get(field, fallback): variant override ?? universe default ?? fallback
 
-flags.logExposure("checkout_button")                // record where you present it
+render(cta.get("primary_label", "Sign up"))         // always safe (auto-logs when enrolled)
 flags.track("purchase", mapOf("amount" to 49))      // conversion for the bound user
 ```
 

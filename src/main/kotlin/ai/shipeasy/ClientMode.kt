@@ -126,10 +126,18 @@ class ShipeasyClient internal constructor(
 
     @Volatile private var flags: Map<String, Boolean> = emptyMap()
     @Volatile private var configs: Map<String, Any?> = emptyMap()
-    @Volatile private var experiments: Map<String, ExperimentResult> = emptyMap()
+    @Volatile private var experiments: Map<String, CachedExp> = emptyMap()
+    // Per-universe param defaults (name → default map) from the edge, so
+    // `universe(name).assign().get()` resolves to the universe default even when
+    // the unit is not enrolled anywhere in the universe.
+    @Volatile private var universeDefaults: Map<String, Map<String, Any?>> = emptyMap()
     @Volatile private var killswitches: Map<String, Any?> = emptyMap()
     @Volatile private var sticky: Map<String, Any?> = emptyMap()
     @Volatile private var ready = false
+
+    // Bounded per-session exposure dedup (`uid:exp`) so repeated assign() calls
+    // don't double-log an exposure. Mirrors the browser EventBuffer dedup.
+    private val exposureSeen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     init {
         // Resolve the stable device anon id: adopt the persisted one if valid,
@@ -195,17 +203,35 @@ class ShipeasyClient internal constructor(
         if (!ready || !configs.containsKey(name)) default else configs[name]
     }.getOrElse { Log.error("ShipeasyClient.getConfig('$name') threw: ${it.message}"); default }
 
-    /** The experiment assignment; [defaultParams] fills `params` when not enrolled/absent. Never throws. */
-    @JvmOverloads
-    fun getExperiment(name: String, defaultParams: Any? = null): ExperimentResult = runCatching {
-        telemetry.emit("experiment", name)
-        val r = if (ready) experiments[name] else null
-        when {
-            r == null -> ExperimentResult(false, "control", defaultParams)
-            r.params == null -> ExperimentResult(r.inExperiment, r.group, defaultParams)
-            else -> r
+    /**
+     * Assign the device user within a universe: `universe("checkout").assign()`. A
+     * universe is a mutual-exclusion pool, so the unit lands in ≤1 experiment; the
+     * returned [Assignment] exposes `.group` / `.get(field, fallback)` and
+     * auto-logs one exposure when enrolled (pass `logExposure = false` to suppress).
+     * An un-enrolled unit still resolves `get()` to the universe defaults. This is
+     * the sole experiment read path — there is no `getExperiment`. Never throws.
+     */
+    fun universe(name: String): ClientUniverseHandle = ClientUniverseHandle(name)
+
+    /** Reusable per-universe handle reading the cached `/sdk/evaluate` response. */
+    inner class ClientUniverseHandle internal constructor(private val universeName: String) {
+        @JvmOverloads
+        fun assign(logExposure: Boolean = true): Assignment = runCatching {
+            telemetry.emit("experiment", universeName)
+            val defaults = universeDefaults[universeName] ?: emptyMap()
+            if (!ready) return@runCatching Assignment(null, null, defaults)
+            for ((expName, entry) in experiments) {
+                if (entry.universe != universeName || !entry.inExperiment) continue
+                if (logExposure) emitExposure(expName, entry.group)
+                // Params are already merged (universe defaults ⊕ variant) by the edge.
+                return@runCatching Assignment(expName, entry.group, entry.params ?: defaults)
+            }
+            Assignment(null, null, defaults)
+        }.getOrElse {
+            Log.error("ShipeasyClient.universe('$universeName').assign() threw: ${it.message}")
+            Assignment(null, null, emptyMap())
         }
-    }.getOrElse { Log.error("ShipeasyClient.getExperiment('$name') threw: ${it.message}"); ExperimentResult(false, "control", defaultParams) }
+    }
 
     /** Whether killswitch [name] (optionally a named per-key override) is engaged. Never throws. */
     @JvmOverloads
@@ -237,21 +263,26 @@ class ShipeasyClient internal constructor(
         }.onFailure { Log.error("ShipeasyClient.track('$event') failed: ${it.message}") }
     }
 
-    /** Emit an exposure for [experiment] for the bound user; no-op when not enrolled. Fire-and-forget. */
-    fun logExposure(experiment: String) {
+    /**
+     * Emit a single deduped exposure for an enrolled `(experiment, group)`.
+     * Auto-called by `universe(name).assign()` when the unit is enrolled (unless
+     * `assign(logExposure = false)`). Fire-and-forget; deduped per session so a
+     * repeated assign never double-counts.
+     */
+    private fun emitExposure(experiment: String, group: String) {
         runCatching {
-            val r = experiments[experiment] ?: return
-            if (!r.inExperiment) return
+            val dedupKey = "${userId ?: anonymousId}:$experiment"
+            if (!exposureSeen.add(dedupKey)) return
             val ev = buildMap<String, Any?> {
                 put("type", "exposure")
                 put("experiment", experiment)
-                put("group", r.group)
+                put("group", group)
                 userId?.let { put("user_id", it) }
                 put("anonymous_id", anonymousId)
                 put("ts", now())
             }
             send(ev)
-        }.onFailure { Log.error("ShipeasyClient.logExposure('$experiment') failed: ${it.message}") }
+        }.onFailure { Log.error("ShipeasyClient.emitExposure('$experiment') failed: ${it.message}") }
     }
 
     // ---- Internals ----
@@ -296,11 +327,21 @@ class ShipeasyClient internal constructor(
         (root["experiments"] as? Map<String, Any?>)?.let { e ->
             experiments = e.mapNotNull { (name, raw) ->
                 val m = raw as? Map<String, Any?> ?: return@mapNotNull null
-                name to ExperimentResult(
+                @Suppress("UNCHECKED_CAST")
+                name to CachedExp(
                     inExperiment = truthy(m["inExperiment"]),
                     group = m["group"]?.toString() ?: "control",
-                    params = m["params"],
+                    params = m["params"] as? Map<String, Any?>,
+                    universe = m["universe"] as? String,
                 )
+            }.toMap()
+        }
+        (root["universes"] as? Map<String, Any?>)?.let { u ->
+            universeDefaults = u.mapNotNull { (name, raw) ->
+                val m = raw as? Map<String, Any?> ?: return@mapNotNull null
+                @Suppress("UNCHECKED_CAST")
+                val defaults = (m["defaults"] as? Map<String, Any?>) ?: emptyMap<String, Any?>()
+                name to defaults
             }.toMap()
         }
         (root["sticky"] as? Map<String, Any?>)?.let { s ->
@@ -364,6 +405,18 @@ class ShipeasyClient internal constructor(
     }
 
     private fun now(): Long = System.currentTimeMillis()
+
+    /**
+     * One cached experiment entry from `/sdk/evaluate`: enrolment, variant,
+     * edge-merged params (universe defaults ⊕ variant), and the [universe] the
+     * experiment belongs to (so `universe(name).assign()` finds its ≤1 member).
+     */
+    private data class CachedExp(
+        val inExperiment: Boolean,
+        val group: String,
+        val params: Map<String, Any?>?,
+        val universe: String?,
+    )
 
     private companion object {
         const val ANON_KEY = "__se_anon_id"

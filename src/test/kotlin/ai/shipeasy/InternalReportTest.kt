@@ -11,6 +11,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -157,19 +158,21 @@ class InternalReportTest {
         val sent = captureSends()
         // A non-localMode engine wires the internal-report context (side=server,
         // enabled) in its init block. Plant a sticky store that throws so a REAL
-        // getExperiment guard hit fires: the reader's runCatching{}.getOrElse{}
+        // assignUniverse guard hit fires: the reader's runCatching{}.getOrElse{}
         // swallows the error, reports it, and returns the not-enrolled fallback.
         val boom = RuntimeException("internal invariant")
         val brokenStore = object : StickyBucketStore {
             override fun get(unit: String): Map<String, StickyEntry>? = throw boom
             override fun set(unit: String, exp: String, entry: StickyEntry) {}
         }
-        // A real experiment blob so evalExperiment reaches the sticky store.
+        // A real experiment blob (in universe "u") so classify reaches the sticky store.
         val engine = Engine.fromSnapshot(
             flags = mapOf("gates" to emptyMap<String, Any?>()),
             experiments = mapOf(
+                "universes" to mapOf("u" to mapOf("holdout_range" to null)),
                 "experiments" to mapOf(
                     "price_test" to mapOf(
+                        "universe" to "u",
                         "status" to "running",
                         "salt" to "abcdefgh",
                         "allocationPct" to 100,
@@ -183,15 +186,14 @@ class InternalReportTest {
         // exercise the guard→report wiring directly on this engine.
         InternalReport.setContext(side = "server", sdkVersion = VERSION)
 
-        val result = engine.getExperiment("price_test", mapOf("user_id" to "u1"), "fallback-params")
+        val result = engine.assignUniverse("u", mapOf("user_id" to "u1"))
 
-        // Guard returned the documented safe default …
-        assertEquals(false, result.inExperiment)
-        assertEquals("control", result.group)
-        assertEquals("fallback-params", result.params)
+        // Guard returned the documented safe (not-enrolled) default …
+        assertFalse(result.enrolled)
+        assertNull(result.group)
         // … and the swallowed internal error was self-reported.
         assertEquals(1, sent.size)
-        assertEquals("flags.getExperiment", sent[0].str("subject"))
+        assertEquals("flags.assignUniverse", sent[0].str("subject"))
         assertEquals("returned a safe default", sent[0].str("outcome"))
         assertEquals("internal invariant", sent[0].str("message"))
         engine.close()

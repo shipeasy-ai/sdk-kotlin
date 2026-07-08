@@ -19,31 +19,26 @@ import ai.shipeasy.Client
 configureForTesting(
     flags = mapOf("new_checkout" to true),                    // name to Boolean
     configs = mapOf("billing_copy" to "Pay now"),             // name to value
-    experiments = mapOf(                                      // name to (group to params)
-        "checkout_button" to ("treatment" to mapOf("color" to "green")),
-    ),
 )
 
 val flags = Client(mapOf("user_id" to "u_123"))
 flags.getFlag("new_checkout")                 // → true
 flags.getConfig("billing_copy")               // → "Pay now"
-
-val r = flags.getExperiment("checkout_button", defaultParams = null)
-r.inExperiment   // true
-r.group          // "treatment"
-r.params         // {color=green}
 ```
 
 Seed shapes:
 
 - `flags` — `mapOf(name to bool)`
 - `configs` — `mapOf(name to value)` (any type, including `null`)
-- `experiments` — `mapOf(name to (group to params))` (the value is a Kotlin
-  `Pair`, `group to params`)
+- `experiments` — `mapOf(name to (group to params))` — sets an experiment
+  override (`group to params`). Because reads are universe-first, an override
+  only surfaces through `universe(name).assign()` when the experiment exists in
+  a loaded blob, so exercise experiments with `configureForOffline` (a real
+  snapshot) and layer the override on top.
 
-`track()` / `logExposure()` are no-ops here — no key, no network, never throw.
-Entities you don't seed fall back to defaults: a flag reads `false`, a config
-reads `null`, an experiment reads not-in-experiment.
+`track()` is a no-op here — no key, no network, never throws. Entities you don't
+seed fall back to defaults: a flag reads `false`, a config reads `null`, and a
+universe with no loaded experiment resolves to a not-enrolled `Assignment`.
 
 ## On-the-spot overrides
 

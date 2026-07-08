@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -67,8 +68,10 @@ class InternalReportInertDefaultTest {
         val engine = Engine.fromSnapshot(
             flags = mapOf("gates" to emptyMap<String, Any?>()),
             experiments = mapOf(
+                "universes" to mapOf("u" to mapOf("holdout_range" to null)),
                 "experiments" to mapOf(
                     "price_test" to mapOf(
+                        "universe" to "u",
                         "status" to "running",
                         "salt" to "abcdefgh",
                         "allocationPct" to 100,
@@ -80,10 +83,10 @@ class InternalReportInertDefaultTest {
         )
         InternalReport.setContext(side = "server", sdkVersion = VERSION)
 
-        val result = engine.getExperiment("price_test", mapOf("user_id" to "u1"), "fallback-params")
+        val result = engine.assignUniverse("u", mapOf("user_id" to "u1"))
 
-        // Guard still returns the safe default …
-        assertEquals(false, result.inExperiment)
+        // Guard still returns the safe (not-enrolled) default …
+        assertFalse(result.enrolled)
         // … but nothing left the process, because the key is the inert placeholder.
         assertTrue(sent.isEmpty(), "real engine guard must not send while the ingest key is the placeholder")
         engine.close()

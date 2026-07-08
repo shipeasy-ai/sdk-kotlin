@@ -137,6 +137,10 @@ class Engine(
     private val configOverrides = ConcurrentHashMap<String, NullableBox>()
     private val experimentOverrides = ConcurrentHashMap<String, ExperimentResult>()
 
+    // Bounded per-process exposure dedup (`uid:exp:group`) so auto-exposure from
+    // repeated assign() calls doesn't spam /collect. Cleared past a soft cap.
+    private val exposureSeen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     @Volatile private var flagsBlob: Map<String, Any?>? = null
     @Volatile private var expsBlob: Map<String, Any?>? = null
     @Volatile private var flagsEtag: String? = null
@@ -311,20 +315,81 @@ class Engine(
         default
     }
 
+    /**
+     * Evaluate one experiment by name for [user] — override → full classify
+     * pipeline (targeting → universe holdout → holdout gate → sticky → allocation
+     * → group), merging the universe defaults under the assigned variant (§B2).
+     * Internal: the public surface is `universe(name).assign(user)`. Reused by the
+     * SSR [evaluate] bootstrap (keyed by experiment name) and by [assignUniverse].
+     */
     @Suppress("UNCHECKED_CAST")
-    fun getExperiment(name: String, user: Map<String, Any?>, defaultParams: Any?): ExperimentResult = runCatching {
-        experimentOverrides[name]?.let { return@runCatching it }
-        telemetry.emit("experiment", name)
-        val flags = flagsBlob
-        val exps = expsBlob
-        val exp = (exps?.get("experiments") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
-        val r = Eval.evalExperiment(exp, flags, exps, withAnonId(user), name, stickyStore)
-        if (r.params == null) r.copy(params = defaultParams) else r
+    private fun evalExperiment(name: String, exp: Map<String, Any?>?, user: Map<String, Any?>): ExpStanding {
+        experimentOverrides[name]?.let { ov ->
+            val universeName = exp?.get("universe") as? String
+            val universe = (expsBlob?.get("universes") as? Map<String, Any?>)?.get(universeName) as? Map<String, Any?>
+            val defaults = Eval.paramDefaultsFromSchema(universe?.get("param_schema"))
+            val ovParams = (ov.params as? Map<String, Any?>) ?: emptyMap()
+            return ExpStanding.group(ov.group, Eval.mergeParams(defaults, ovParams))
+        }
+        return Eval.classifyExperiment(exp, flagsBlob, expsBlob, user, name, stickyStore)
+    }
+
+    /**
+     * Assign [user] within [universeName]. A universe is a mutual-exclusion pool,
+     * so a unit lands in **at most one** experiment; the returned [Assignment]
+     * exposes the variant + resolved params and auto-logs a single exposure when
+     * enrolled. An un-enrolled unit still resolves `get()` to the universe
+     * defaults. Never throws. This is the sole experiment read path (there is no
+     * `getExperiment` — a caller asks a universe, not an experiment).
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun assignUniverse(universeName: String, user: Map<String, Any?>): Assignment = runCatching {
+        telemetry.emit("experiment", universeName)
+        val u = withAnonId(user)
+        val universe = (expsBlob?.get("universes") as? Map<String, Any?>)?.get(universeName) as? Map<String, Any?>
+        val paramDefaults = Eval.paramDefaultsFromSchema(universe?.get("param_schema"))
+        val notEnrolled = { Assignment(null, null, paramDefaults ?: emptyMap()) }
+        val exps = expsBlob ?: return@runCatching notEnrolled()
+
+        // Candidate running experiments in this universe. Deterministic order:
+        // pool-slice offset asc (slices are disjoint so ≤1 matches under pooling),
+        // then name. A universe-held-out or unallocated unit falls through to the
+        // defaults-only handle.
+        val experimentsMap = (exps["experiments"] as? Map<String, Any?>) ?: emptyMap()
+        val candidates = experimentsMap.entries
+            .mapNotNull { (name, raw) -> (raw as? Map<String, Any?>)?.let { name to it } }
+            .filter { (_, e) -> e["universe"] == universeName && e["status"] == "running" }
+            .sortedWith(
+                compareBy({ (it.second["poolOffsetBp"] as? Number)?.toInt() ?: 0 }, { it.first }),
+            )
+
+        for ((name, exp) in candidates) {
+            val c = evalExperiment(name, exp, u)
+            if (c.state == ExpStanding.State.GROUP) {
+                postExposure(u, name, c.group ?: "control")
+                return@runCatching Assignment(name, c.group, c.params ?: emptyMap())
+            }
+            // "holdout"/"out": try the next candidate — under pooling only one slice
+            // can match, so the loop naturally lands on the winner (or falls through).
+        }
+        notEnrolled()
     }.getOrElse {
-        // Documented safe default: not enrolled, control group, caller's params.
-        Log.error("getExperiment('$name') threw, returning not-enrolled default: ${it.message}")
-        InternalReport.report("flags.getExperiment", it)
-        ExperimentResult(false, "control", defaultParams)
+        Log.error("universe('$universeName').assign() threw, returning not-enrolled default: ${it.message}")
+        InternalReport.report("flags.assignUniverse", it)
+        Assignment(null, null, emptyMap())
+    }
+
+    /**
+     * The universe-first experiment read entry point:
+     * `engine.universe("checkout").assign(user)`. Returns a reusable handle bound
+     * to one universe; `assign(user)` picks the ≤1 experiment the unit is pooled
+     * into and auto-logs a single exposure. See [assignUniverse].
+     */
+    fun universe(name: String): UniverseHandle = UniverseHandle(name)
+
+    /** Reusable per-universe handle whose [assign] delegates to [assignUniverse]. */
+    inner class UniverseHandle internal constructor(private val universeName: String) {
+        fun assign(user: Map<String, Any?>): Assignment = assignUniverse(universeName, user)
     }
 
     /**
@@ -372,6 +437,9 @@ class Engine(
         val outFlags = LinkedHashMap<String, Any?>()
         val outConfigs = LinkedHashMap<String, Any?>()
         val outExps = LinkedHashMap<String, Any?>()
+        // Per-universe param defaults so the client can resolve
+        // `universe(name).get()` to a default even when not enrolled anywhere.
+        val outUniverses = LinkedHashMap<String, Any?>()
 
         (flags?.get("gates") as? Map<String, Any?>)?.forEach { (name, gate) ->
             outFlags[name] = flagOverrides[name] ?: Eval.evalGate(gate as Map<String, Any?>, u)
@@ -381,14 +449,34 @@ class Engine(
                 if (configOverrides.containsKey(name)) configOverrides[name]?.value
                 else (entry as? Map<String, Any?>)?.get("value")
         }
-        (exps?.get("experiments") as? Map<String, Any?>)?.forEach { (name, exp) ->
-            val r = experimentOverrides[name]
-                ?: Eval.evalExperiment(exp as? Map<String, Any?>, flags, exps, u, name, stickyStore)
-            outExps[name] = linkedMapOf<String, Any?>(
-                "inExperiment" to r.inExperiment,
-                "group" to r.group,
-                "params" to r.params,
-            )
+        val universesBlob = exps?.get("universes") as? Map<String, Any?>
+        (exps?.get("experiments") as? Map<String, Any?>)?.forEach { (name, expRaw) ->
+            val exp = expRaw as? Map<String, Any?>
+            val uniName = exp?.get("universe") as? String
+            if (uniName != null && !outUniverses.containsKey(uniName)) {
+                val universe = universesBlob?.get(uniName) as? Map<String, Any?>
+                outUniverses[uniName] = linkedMapOf<String, Any?>(
+                    "defaults" to (Eval.paramDefaultsFromSchema(universe?.get("param_schema")) ?: emptyMap<String, Any?>()),
+                )
+            }
+            // Merged params (universe defaults ⊕ variant) come out of classify.
+            val c = evalExperiment(name, exp, u)
+            outExps[name] =
+                if (c.state == ExpStanding.State.GROUP) {
+                    linkedMapOf<String, Any?>(
+                        "inExperiment" to true,
+                        "group" to (c.group ?: "control"),
+                        "params" to (c.params ?: emptyMap<String, Any?>()),
+                        "universe" to uniName,
+                    )
+                } else {
+                    linkedMapOf<String, Any?>(
+                        "inExperiment" to false,
+                        "group" to "control",
+                        "params" to emptyMap<String, Any?>(),
+                        "universe" to uniName,
+                    )
+                }
         }
 
         return linkedMapOf(
@@ -396,6 +484,7 @@ class Engine(
             "configs" to outConfigs,
             "experiments" to outExps,
             "killswitches" to LinkedHashMap<String, Any?>(),
+            "universes" to outUniverses,
         )
     }
 
@@ -475,27 +564,28 @@ class Engine(
     }
 
     /**
-     * Emit an exposure event for an experiment at the server-side decision point
-     * (parity with the browser's auto-exposure). The server is stateless and
-     * never auto-logs, so call this when you actually present the treatment.
-     * Re-evaluates [experimentName] for [userId]; if the user is enrolled, POSTs
-     * a single `exposure` event to `/collect`. No-op in localMode or when the
-     * user isn't enrolled.
+     * POST a single exposure for an enrolled `(user, experiment, group)`. Deduped
+     * per process (bounded set) so repeated `assign()` calls in one server don't
+     * spam `/collect`. Fire-and-forget; no-op in localMode. This is how
+     * [assignUniverse] auto-logs — the browser's auto-exposure parity for SSR.
      */
-    fun logExposure(userId: String, experimentName: String) {
+    private fun postExposure(user: Map<String, Any?>, experiment: String, group: String) {
         if (localMode) return
-        // Fire-and-forget: never surface a throwable to the caller.
         runCatching {
-            val result = getExperiment(experimentName, mapOf("user_id" to userId), null)
-            if (!result.inExperiment) return
+            val userId = user["user_id"]?.toString()?.takeIf { it.isNotEmpty() }
+            val anonId = user["anonymous_id"]?.toString()?.takeIf { it.isNotEmpty() }
+            val dedupKey = "${userId ?: anonId ?: ""}:$experiment:$group"
+            if (!exposureSeen.add(dedupKey)) return
+            if (exposureSeen.size > 5000) exposureSeen.clear()
             val event = buildMap<String, Any?> {
-                put("type", "exposure"); put("experiment", experimentName)
-                put("group", result.group); put("user_id", userId)
+                put("type", "exposure"); put("experiment", experiment); put("group", group)
+                userId?.let { put("user_id", it) }
+                anonId?.let { put("anonymous_id", it) }
                 put("ts", Instant.now().toEpochMilli())
             }
             val body = mapOf("events" to listOf(event))
             eventSender(json.encodeToString(JsonElement.serializer(), toJsonElement(body)).toByteArray())
-        }.onFailure { Log.error("logExposure('$experimentName') failed: ${it.message}") }
+        }.onFailure { Log.error("exposure send for '$experiment' failed: ${it.message}") }
     }
 
     // ---- see() structured error reporting ----

@@ -294,8 +294,9 @@ shipeasyClient()?.identify(mapOf("user_id" to userId, "plan" to "pro"))
 
 // Reads serve the cached assignments (no per-call network; safe on any thread):
 val on   = shipeasyClient()?.getFlag("new_checkout") ?: false
-val exp  = shipeasyClient()?.getExperiment("checkout_button", defaultParams = null)
-shipeasyClient()?.logExposure("checkout_button")
+// universe(name).assign() → Assignment (auto-logs a deduped exposure when enrolled):
+val cta  = shipeasyClient()?.universe("hero_cta")?.assign()
+val label = cta?.get("primary_label", "Sign up")
 shipeasyClient()?.track("purchase", mapOf("amount" to 49))
 shipeasyClient()?.reset()   // logout: keep the device anon id, drop user_id
 ```

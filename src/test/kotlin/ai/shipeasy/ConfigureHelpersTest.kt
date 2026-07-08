@@ -29,14 +29,10 @@ class ConfigureHelpersTest {
         configureForTesting(
             flags = mapOf("new_checkout" to true),
             configs = mapOf("theme" to "blue"),
-            experiments = mapOf("price_test" to ("treatment" to mapOf("price" to 9))),
         )
         val c = Client(mapOf("user_id" to "u_1"))
         assertTrue(c.getFlag("new_checkout"))
         assertEquals("blue", c.getConfig("theme"))
-        val r = c.getExperiment("price_test", null)
-        assertTrue(r.inExperiment)
-        assertEquals("treatment", r.group)
 
         // REPLACE (not first-wins): a second call wins.
         configureForTesting(flags = mapOf("new_checkout" to false))
@@ -44,15 +40,37 @@ class ConfigureHelpersTest {
     }
 
     @Test
+    fun overrideExperimentSurfacesThroughAssign() {
+        // A real running experiment in universe "u" so an override surfaces via
+        // universe("u").assign() (assign iterates the loaded experiments blob).
+        val snapshot = mapOf<String, Any?>(
+            "flags" to mapOf("gates" to emptyMap<String, Any?>()),
+            "experiments" to mapOf(
+                "universes" to mapOf("u" to mapOf("holdout_range" to null)),
+                "experiments" to mapOf(
+                    "price_test" to mapOf(
+                        "universe" to "u", "allocationPct" to 10000, "salt" to "s", "status" to "running",
+                        "groups" to listOf(mapOf("name" to "control", "weight" to 10000, "params" to emptyMap<String, Any?>())),
+                    ),
+                ),
+            ),
+        )
+        configureForOffline(snapshot = snapshot)
+        overrideExperiment("price_test", "treatment", mapOf("price" to 9))
+        val a = Client(mapOf("user_id" to "u_1")).universe("u").assign()
+        assertTrue(a.enrolled)
+        assertEquals("treatment", a.group)
+        assertEquals(9, a.get("price"))
+    }
+
+    @Test
     fun packageOverridesAndClear() {
         configureForTesting(flags = mapOf("f" to true))
         overrideFlag("f", false)
         overrideConfig("c", 123)
-        overrideExperiment("e", "B", mapOf("v" to 2))
         val c = Client(mapOf("user_id" to "u"))
         assertFalse(c.getFlag("f"))
         assertEquals(123, c.getConfig("c"))
-        assertEquals("B", c.getExperiment("e", null).group)
 
         // Test mode has no blob beneath: clearOverrides drops the seed too.
         clearOverrides()

@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.15.0 — 2026-07-08
+
+### BREAKING — experiments are now read by universe, not by name
+
+The whole experiment read surface is replaced. A **universe is a mutual-exclusion
+pool**: a unit is enrolled in **at most one** experiment in it, so you ask a
+universe for an assignment instead of naming an experiment. `getExperiment` and
+`logExposure` are **removed** from every surface — `Engine`, the bound
+`Client`, and the native `ShipeasyClient`.
+
+```kotlin
+// Before (removed):
+val exp = flags.getExperiment("checkout_button", mapOf("color" to "red"))
+if (exp.inExperiment && (exp.params as? Map<*, *>)?.get("color") == "green") …
+
+// After — server (Client(user)):
+val exp = flags.universe("checkout").assign()          // user bound at construction
+if (exp.get("button_color") == "green") …
+
+// After — native client (ShipeasyClient):
+val exp = shipeasyClient()?.universe("checkout")?.assign()  // device identity is global
+```
+
+- **`universe(name).assign(...)`** returns an `Assignment`:
+  - `name` — the experiment the unit landed in, or `null` when not enrolled.
+  - `group` — the assigned variant, or `null` when not enrolled.
+  - `enrolled` — `Boolean` (`== (group != null)`).
+  - `get(field, fallback)` — resolves **variant override ?? universe default ??
+    fallback**. Works even when not enrolled (you get the universe default),
+    because the universe now owns the param schema + defaults.
+- On the server `Engine.universe(name).assign(user)` takes the user; the bound
+  `Client.universe(name).assign()` takes none (the user is bound at
+  construction). The native `ShipeasyClient.universe(name).assign(logExposure =
+  true)` reads the cached `/sdk/evaluate` response.
+- **Auto-exposure.** `assign()` logs a single exposure when the unit is enrolled
+  (server dedups per process; the native client dedups per session). The manual
+  `logExposure` primitive is gone — reading *is* the exposure. The native client
+  can suppress it with `assign(logExposure = false)`.
+- **Mutual exclusion (pooled assignment), per-experiment holdout gates, reserved
+  headroom, and universe-default ⊕ variant param merge** are now honoured by the
+  local server `Eval`, matching the edge. The SSR bootstrap `evaluate()` payload
+  now carries a `universes` defaults map and a `universe` field per experiment.
+- `overrideExperiment` (test seam) is unchanged — it still forces a group/params
+  for an experiment; the override surfaces through `assign()` when that experiment
+  exists in the loaded blob.
+
 ## 0.14.0 — 2026-07-08
 
 ### Added
