@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.16.0 — 2026-07-08
+
+### Environment-derived network & telemetry (egress) defaults
+
+The SDK is now **quiet by default outside production**: when the runtime doesn't
+look like production, it makes **no outbound request** (flag/experiment fetch,
+poll, `track`, exposure, `see()`, and usage telemetry) until you opt in. So
+running an app that embeds the SDK on a dev machine or in CI no longer phones home
+unless you ask it to. Two new `configure(...)` / `configureClient(...)` /
+`ShipeasyClient` options control this:
+
+- **`isNetworkEnabled: Boolean?`** — the master switch on **all** outbound
+  requests. When off the SDK is fully offline: reads return your in-code defaults
+  / overrides and nothing is sent.
+- **`isTrackingEnabled: Boolean?`** — the usage-telemetry beacon on its own.
+  Forced off whenever the network is off. (The legacy `disableTelemetry = true`
+  still works and is equivalent to `isTrackingEnabled = false`.)
+
+Both default to `null` ⇒ **on in production, off in every other environment**. An
+explicitly-passed `true`/`false` always wins.
+
+**"Is this production?"** is resolved with this precedence: the `shipeasy.env`
+**system property**, then the `SHIPEASY_ENV`, `APP_ENV`, `ENV` **environment
+variables** (a value of `production`/`prod`, case-insensitive, ⇒ production; any
+other present value ⇒ not production); if none is set, fall back to the SDK's own
+`env` option, which already defaults to `"prod"` — so a real production deploy
+stays on by default while `env = "dev"` stays quiet.
+
+**BEHAVIOUR CHANGE.** Before 0.16.0 the network + telemetry were always on. If you
+relied on the SDK reaching the edge from a non-production environment, restore the
+old behaviour by either:
+
+- passing `configure(..., isNetworkEnabled = true)` (add `isTrackingEnabled = true`
+  if you also want the usage beacon), **or**
+- marking the environment as production: `-Dshipeasy.env=production` on the JVM, or
+  `export SHIPEASY_ENV=production`.
+
+`configureForTesting` / `configureForOffline` are unaffected — they were already
+fully offline.
+
 ## 0.15.0 — 2026-07-08
 
 ### BREAKING — experiments are now read by universe, not by name

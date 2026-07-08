@@ -31,5 +31,15 @@ class InternalReportInertListener : LauncherSessionListener {
         // Referencing InternalReport here also triggers its class init (which sets
         // the real baked key); we immediately override it back to the placeholder.
         InternalReport.setIngestKeyForTest(InternalReport.PLACEHOLDER_KEY)
+        // Declare the whole suite production-equivalent for EGRESS. As of 0.16.0 the
+        // network + telemetry defaults are environment-derived (OFF outside prod —
+        // see Env.isProductionEnv). Tests run in a non-production JVM, so without
+        // this every engine built without an explicit isNetworkEnabled would be
+        // offline and its network-path assertions (see()/track()/telemetry senders)
+        // would break. Pinning the `shipeasy.env` system property to "production"
+        // keeps the default ON for the suite; the dedicated EnvDefaultsTest clears
+        // it locally to assert the dev/prod branching. Mirrors sdk-ts's
+        // src/__tests__/setup.ts (`SHIPEASY_ENV=production`).
+        System.setProperty("shipeasy.env", "production")
     }
 }

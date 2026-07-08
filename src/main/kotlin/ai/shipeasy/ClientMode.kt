@@ -101,6 +101,14 @@ class ShipeasyClient internal constructor(
     private val store: AnonStore = InMemoryAnonStore(),
     disableTelemetry: Boolean = false,
     telemetryUrl: String? = null,
+    // Master network switch. null ⇒ environment-derived (ON in production, OFF in
+    // dev/CI/test — see [Env.isProductionEnv]): the client stays fully offline
+    // (reads served from cache/defaults, nothing sent) outside production unless
+    // you opt in. Pass `true`/`false` to force it.
+    isNetworkEnabled: Boolean? = null,
+    // Usage-telemetry switch. null ⇒ environment-derived (same inference). Forced
+    // off whenever the network is off; `disableTelemetry = true` still forces off.
+    isTrackingEnabled: Boolean? = null,
     private val privateAttributes: List<String> = emptyList(),
     private val transport: ClientTransport? = null,
 ) {
@@ -109,12 +117,25 @@ class ShipeasyClient internal constructor(
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // Master network gate — resolved once. Honour an explicit isNetworkEnabled,
+    // else default to prod-on (see [Env.isProductionEnv]). When offline the client
+    // makes no network call: identify()/refresh()/track() are no-ops and reads are
+    // served from cache / defaults.
+    private val networkEnabled: Boolean = isNetworkEnabled ?: Env.isProductionEnv(env)
+    private val offline: Boolean = !networkEnabled
+
+    // Whether the per-eval usage beacon may fire. Off whenever the network is off;
+    // else honour an explicit isTrackingEnabled (or the legacy disableTelemetry),
+    // else default to prod-on (quiet outside production).
+    private val trackingEnabled: Boolean =
+        networkEnabled && !disableTelemetry && (isTrackingEnabled ?: Env.isProductionEnv(env))
+
     private val telemetry = Telemetry(
         endpoint = telemetryUrl ?: "https://t.shipeasy.ai",
         sdkKey = clientKey,
         side = "client",
         env = env,
-        disabled = disableTelemetry,
+        disabled = !trackingEnabled,
         http = http,
     )
 
@@ -298,6 +319,7 @@ class ShipeasyClient internal constructor(
 
     /** POST `/sdk/evaluate` for the bound user and apply the assignments. Never throws into caller code. */
     private suspend fun refresh() {
+        if (offline) return // fully offline: reads stay on cache / defaults
         runCatching {
             val body = buildMap<String, Any?> {
                 put("user", evaluateUser())
@@ -352,8 +374,9 @@ class ShipeasyClient internal constructor(
         }
     }
 
-    /** Fire-and-forget one event to `/collect` with the client key. */
+    /** Fire-and-forget one event to `/collect` with the client key. No-op offline. */
     private fun send(event: Map<String, Any?>) {
+        if (offline) return
         val body = json.encodeToString(JsonElement.serializer(), toJsonElement(mapOf("events" to listOf(event)))).toByteArray()
         scope.launch { runCatching { doPost("/collect", body) } }
     }
@@ -448,6 +471,11 @@ fun configureClient(
     env: String = "prod",
     disableTelemetry: Boolean = false,
     telemetryUrl: String? = null,
+    // Master network switch. null ⇒ environment-derived (ON in production, OFF in
+    // dev/CI/test): the client stays offline outside production unless you opt in.
+    isNetworkEnabled: Boolean? = null,
+    // Usage-telemetry switch. null ⇒ environment-derived (same inference).
+    isTrackingEnabled: Boolean? = null,
     privateAttributes: List<String> = emptyList(),
 ): ShipeasyClient {
     clientRef.get()?.let { return it }
@@ -458,6 +486,8 @@ fun configureClient(
         store = store,
         disableTelemetry = disableTelemetry,
         telemetryUrl = telemetryUrl,
+        isNetworkEnabled = isNetworkEnabled,
+        isTrackingEnabled = isTrackingEnabled,
         privateAttributes = privateAttributes,
     )
     if (clientRef.compareAndSet(null, client)) {

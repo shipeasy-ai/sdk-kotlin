@@ -152,3 +152,10 @@ Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/testing.md>
   `AnonIdFilter` (servlet) for logged-out bucketing, package-level `onChange`
   (requires `poll = true`), `bootstrapScriptTag` SSR. Reference:
   <https://shipeasy-ai.github.io/sdk-kotlin/pages/advanced.md>
+- **Quiet outside production (0.16.0+):** the SDK is offline by default when the
+  environment isn't production — no fetch, `track`, `see()`, or telemetry until
+  you opt in. It's production when the `shipeasy.env` system property or a
+  `SHIPEASY_ENV`/`APP_ENV`/`ENV` var is `prod`/`production`, else it falls back to
+  the `env` option (defaults to `"prod"`). Force it with
+  `configure(..., isNetworkEnabled = true)` or `-Dshipeasy.env=production`.
+  Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/configuration.md>

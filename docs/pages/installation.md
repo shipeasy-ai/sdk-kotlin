@@ -102,8 +102,10 @@ call. For a long-running server that should also **poll** for updates, pass
 | `apiKey`            | `String`               | —                             | **SERVER** key — authenticates flags/experiments/SSR. Never reaches the browser. |
 | `attributes`        | `(Any?) -> Map<…>`     | identity                      | Maps YOUR user object → the targeting bag (`user_id`, `anonymous_id`, attrs). Runs once per `Client(user)`. |
 | `baseUrl`           | `String?`              | `https://api.shipeasy.ai`   | Edge API origin override. |
-| `env`               | `String`               | `"prod"`                      | Tags telemetry + `see()` events. |
-| `disableTelemetry`  | `Boolean`              | `false`                       | Opt out of per-eval usage telemetry. |
+| `env`               | `String`               | `"prod"`                      | Tags telemetry + `see()` events; also the fallback env for the egress defaults below. |
+| `isNetworkEnabled`  | `Boolean?`             | `null` (env-derived)          | Master switch on **all** outbound requests. `null` ⇒ on in production, off elsewhere. See [Configuration](configuration.md#network--telemetry-quiet-outside-production). |
+| `isTrackingEnabled` | `Boolean?`             | `null` (env-derived)          | Usage-telemetry switch. `null` ⇒ on in production, off elsewhere; forced off when the network is off. |
+| `disableTelemetry`  | `Boolean`              | `false`                       | Legacy hard opt-out of per-eval usage telemetry (same as `isTrackingEnabled = false`). |
 | `telemetryUrl`      | `String?`              | `null`                        | Override the telemetry beacon origin. |
 | `privateAttributes` | `List<String>`         | `[]`                          | Attrs usable for targeting but stripped from outbound `track()` / `see()` extras. |
 | `stickyStore`       | `StickyBucketStore?`   | `null`                        | Lock a unit to its first-assigned variant (see [Advanced](advanced.md)). |

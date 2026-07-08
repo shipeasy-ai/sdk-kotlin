@@ -73,6 +73,13 @@ fun configure(
     env: String = "prod",
     disableTelemetry: Boolean = false,
     telemetryUrl: String? = null,
+    // Master network switch. null ⇒ environment-derived (ON in production, OFF in
+    // dev/CI/test — see the Configuration docs): the SDK is fully quiet outside
+    // production unless you opt in. Pass `true`/`false` to force it.
+    isNetworkEnabled: Boolean? = null,
+    // Usage-telemetry switch (the per-eval beacon). null ⇒ environment-derived
+    // (same inference as [isNetworkEnabled]). Forced off whenever the network is off.
+    isTrackingEnabled: Boolean? = null,
     privateAttributes: List<String> = emptyList(),
     stickyStore: StickyBucketStore? = null,
     poll: Boolean = false,
@@ -91,6 +98,8 @@ fun configure(
             env = env,
             disableTelemetry = disableTelemetry,
             telemetryUrl = telemetryUrl,
+            isNetworkEnabled = isNetworkEnabled,
+            isTrackingEnabled = isTrackingEnabled,
             privateAttributes = privateAttributes,
             stickyStore = stickyStore,
             logLevel = logLevel,

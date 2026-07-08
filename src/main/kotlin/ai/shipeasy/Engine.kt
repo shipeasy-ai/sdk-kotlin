@@ -64,6 +64,16 @@ class Engine(
     env: String = "prod",
     disableTelemetry: Boolean = false,
     telemetryUrl: String? = null,
+    // Master network switch — the single gate on ALL outbound requests (flag /
+    // experiment fetch, poll, track(), exposure, see(), AND usage telemetry).
+    // null ⇒ environment-derived (see [Env.isProductionEnv]): ON in production,
+    // OFF everywhere else, so a dev/CI run never phones home unless it opts in.
+    // Pass `true`/`false` to force it. [localMode] always forces it off.
+    isNetworkEnabled: Boolean? = null,
+    // Usage-telemetry switch (the per-evaluation beacon). null ⇒ environment-
+    // derived (same inference as [isNetworkEnabled]). Forced off whenever the
+    // network is off. `disableTelemetry = true` still forces it off (back-compat).
+    isTrackingEnabled: Boolean? = null,
     // Attribute names usable for targeting but never persisted in analytics
     // (LD/Statsig `privateAttributes`). The server evaluates locally, so private
     // attrs never leave for evaluation at all; the only egress is `/collect`, and
@@ -96,6 +106,20 @@ class Engine(
     // it separately on its own beacon path).
     private val env: String = env
 
+    // Master network gate — resolved once at construction. localMode always forces
+    // offline; otherwise honour an explicit isNetworkEnabled, else default to
+    // prod-on (see [Env.isProductionEnv]). `offline` is the "no network at all"
+    // state every fetch / track / see / poll / telemetry path keys on.
+    private val networkEnabled: Boolean =
+        if (localMode) false else (isNetworkEnabled ?: Env.isProductionEnv(env))
+    private val offline: Boolean = !networkEnabled
+
+    // Whether the per-eval usage telemetry beacon may fire. Off whenever the
+    // network is off; else honour an explicit isTrackingEnabled (or the legacy
+    // disableTelemetry), else default to prod-on (quiet outside production).
+    private val trackingEnabled: Boolean =
+        networkEnabled && !disableTelemetry && (isTrackingEnabled ?: Env.isProductionEnv(env))
+
     // Per-process spam guard for see(): repeated reports of the same issue within
     // a 30s window collapse to a single send, with a hard per-process cap.
     private val seeLimiter = SeeLimiter()
@@ -121,11 +145,13 @@ class Engine(
         }
     }
 
-    // Per-evaluation usage telemetry. ON by default; pass disableTelemetry = true
-    // to opt out. Always off in localMode (an empty key disables it too). See
+    // Per-evaluation usage telemetry. Default is environment-derived (ON in
+    // production, OFF outside it — see [trackingEnabled]); pass disableTelemetry =
+    // true or isTrackingEnabled = false to force it off, isTrackingEnabled = true
+    // to force it on. Always off in localMode / when the network is off. See
     // Telemetry.kt.
     private val telemetry = Telemetry(
-        telemetryUrl ?: "https://t.shipeasy.ai", apiKey, "server", env, disableTelemetry || localMode, http,
+        telemetryUrl ?: "https://t.shipeasy.ai", apiKey, "server", env, !trackingEnabled, http,
     )
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -171,12 +197,12 @@ class Engine(
         InternalReport.setContext(
             side = "server",
             sdkVersion = VERSION,
-            enabled = !disableInternalErrorReporting && !localMode,
+            enabled = !disableInternalErrorReporting && !offline,
         )
     }
 
     suspend fun init() {
-        if (localMode) return
+        if (offline) return
         fetchAll()
         initialized = true
         pollJob = scope.launch {
@@ -193,7 +219,7 @@ class Engine(
     }
 
     suspend fun initOnce() {
-        if (localMode) return
+        if (offline) return
         if (initialized) return
         fetchAll()
         initialized = true
@@ -549,7 +575,7 @@ class Engine(
     }
 
     fun track(userId: String, eventName: String, properties: Map<String, Any?>? = null) {
-        if (localMode) return
+        if (offline) return
         // Fire-and-forget: an unexpected throwable must never surface to the caller.
         runCatching {
             val safeProps = stripPrivate(properties)
@@ -566,11 +592,12 @@ class Engine(
     /**
      * POST a single exposure for an enrolled `(user, experiment, group)`. Deduped
      * per process (bounded set) so repeated `assign()` calls in one server don't
-     * spam `/collect`. Fire-and-forget; no-op in localMode. This is how
+     * spam `/collect`. Fire-and-forget; no-op when offline (localMode or the
+     * network switch off). This is how
      * [assignUniverse] auto-logs — the browser's auto-exposure parity for SSR.
      */
     private fun postExposure(user: Map<String, Any?>, experiment: String, group: String) {
-        if (localMode) return
+        if (offline) return
         runCatching {
             val userId = user["user_id"]?.toString()?.takeIf { it.isNotEmpty() }
             val anonId = user["anonymous_id"]?.toString()?.takeIf { it.isNotEmpty() }
@@ -609,10 +636,11 @@ class Engine(
     /** Mark an exception as expected control flow — reports nothing. */
     fun controlFlowException(err: Throwable): ControlFlowChain = ControlFlowChain(err)
 
-    // Build the wire event and fire-and-forget POST it to /collect. No-op in
-    // localMode. Spam-guarded. Never raises into caller code.
+    // Build the wire event and fire-and-forget POST it to /collect. No-op when
+    // offline (localMode or the network switch off). Spam-guarded. Never raises
+    // into caller code.
     private fun dispatchSee(built: BuiltSee) {
-        if (localMode) return
+        if (offline) return
         runCatching {
             val ev = buildSeeEvent(
                 built.problem,

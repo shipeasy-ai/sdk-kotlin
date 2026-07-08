@@ -27,8 +27,10 @@ exactly once.
 | `apiKey`            | —                             | **SERVER** key — authenticates flags/experiments/SSR. |
 | `attributes`        | identity                      | Your user object → attribute map. Runs once per `Client(user)`. |
 | `baseUrl`           | `https://api.shipeasy.ai`   | Edge API origin override. |
-| `env`               | `"prod"`                      | Tags telemetry + `see()` events. |
-| `disableTelemetry`  | `false`                       | Opt out of per-eval usage telemetry. |
+| `env`               | `"prod"`                      | Tags telemetry + `see()` events; also the fallback for the egress defaults (below). |
+| `isNetworkEnabled`  | `null` (env-derived)          | Master switch on **all** outbound requests. `null` ⇒ on in production, off elsewhere. |
+| `isTrackingEnabled` | `null` (env-derived)          | Usage-telemetry switch. `null` ⇒ on in production, off elsewhere. Forced off when the network is off. |
+| `disableTelemetry`  | `false`                       | Legacy hard opt-out of per-eval usage telemetry (equivalent to `isTrackingEnabled = false`). |
 | `telemetryUrl`      | `null`                        | Override the telemetry beacon origin. |
 | `privateAttributes` | `[]`                          | Attrs usable for targeting but stripped from outbound payloads. |
 | `stickyStore`       | `null`                        | Lock a unit to its first-assigned variant. |
@@ -125,7 +127,47 @@ configure(
 
 Logging goes through `java.util.logging` under the logger name `"shipeasy"`.
 
+## Network & telemetry: quiet outside production
+
+Since **0.16.0** the SDK is **offline by default outside production**. Both egress
+controls — `isNetworkEnabled` (the master switch on *every* outbound request:
+flag/experiment fetch, poll, `track`, exposure, `see()`, and usage telemetry) and
+`isTrackingEnabled` (just the usage beacon) — default to **on in production and
+off in every other environment**. So running an app that embeds the SDK on a dev
+machine or in CI never phones home unless you opt in; when the network is off,
+reads return your in-code defaults / overrides and nothing is sent.
+
+"Is this production?" is resolved with this precedence:
+
+1. A native runtime signal, in order: the `shipeasy.env` **system property**, then
+   the `SHIPEASY_ENV`, `APP_ENV`, `ENV` **environment variables**. A value of
+   `production` or `prod` (case-insensitive) ⇒ production; any other present value
+   (`staging`, `test`, …) ⇒ not production.
+2. If none of those is set (common on serverless / mobile), fall back to the SDK's
+   own `env` option — which already defaults to `"prod"`, so a real production
+   deploy stays on by default while `env = "dev"` stays quiet.
+
+An explicitly-passed value **always** wins over the default:
+
+```kotlin
+// Force the SDK fully online even on a dev box (e.g. an integration test that
+// really should hit the edge):
+configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"), isNetworkEnabled = true)
+
+// Or keep flags/experiments flowing but suppress the usage beacon:
+configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"), isTrackingEnabled = false)
+```
+
+**Restoring the pre-0.16.0 "always on" behaviour:** either pass
+`isNetworkEnabled = true` (and, if you also want the usage beacon,
+`isTrackingEnabled = true`), or mark the environment as production —
+`-Dshipeasy.env=production` on the JVM, or `export SHIPEASY_ENV=production`.
+
+`configureForTesting` / `configureForOffline` are unaffected — they were already
+fully offline.
+
 ## Environment variables
 
-The SDK reads no env vars implicitly — pass `apiKey` (and any `baseUrl`)
-explicitly. By convention the key lives in `SHIPEASY_SERVER_KEY`.
+Apart from the egress signals above (`SHIPEASY_ENV` / `APP_ENV` / `ENV`, all
+optional), the SDK reads no env vars implicitly — pass `apiKey` (and any
+`baseUrl`) explicitly. By convention the key lives in `SHIPEASY_SERVER_KEY`.
