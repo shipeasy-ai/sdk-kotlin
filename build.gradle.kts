@@ -18,6 +18,12 @@ dependencies {
     // never load the filter class.
     compileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
     testImplementation(kotlin("test"))
+    // For the suite-wide LauncherSessionListener that pins the internal-report
+    // ingest key to the inert placeholder before any test runs (see
+    // src/test/.../InternalReportInertListener.kt). junit-platform-launcher is
+    // already on the test runtime classpath via kotlin("test"); we only need it
+    // at compile time to implement the listener interface.
+    testImplementation("org.junit.platform:junit-platform-launcher:1.10.2")
 }
 
 // The generated OpenAPI admin client ships as a SEPARATE, opt-in artifact
