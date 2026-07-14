@@ -6,9 +6,14 @@ data class ExperimentResult(val inExperiment: Boolean, val group: String, val pa
  * The result of `universe(name).assign(...)` — a unit's standing in a universe.
  * A universe is a mutual-exclusion pool, so a unit lands in **at most one**
  * experiment. Never throws: an un-enrolled unit still resolves [get] to the
- * universe defaults (or your fallback). Reading is side-effect free — the single
- * exposure is auto-logged by `assign()` when the unit is enrolled. Mirrors the
- * canonical TS `Assignment` (doc 20 §B).
+ * universe defaults (or your fallback).
+ *
+ * Exposure is logged **on read** (spec step 7): the single exposure fires the
+ * first time an enrolled unit's param is actually read via [get], not at
+ * `assign()` time — so an assignment that is computed but never read logs
+ * nothing. Deduped per process; the durable per-(unit, experiment, group) dedup
+ * lives server-side. Use [peek] to read without logging. Mirrors the canonical
+ * TS `Assignment` (doc 20 §B).
  */
 class Assignment internal constructor(
     /** The experiment the unit landed in, or `null` when not enrolled. */
@@ -18,17 +23,48 @@ class Assignment internal constructor(
     // Already merged (universeDefaults ⊕ variantOverride) when enrolled;
     // defaults-only (or empty) when not.
     private val params: Map<String, Any?>,
+    // Fires the single exposure the first time an enrolled param is read; null
+    // when not enrolled (nothing to expose). Deduped downstream.
+    private val onExpose: (() -> Unit)? = null,
 ) {
-    /** True iff the unit is enrolled in an experiment in this universe. */
+    private var exposed = false
+
+    /**
+     * True iff the unit is enrolled in an experiment in this universe. Reading it
+     * does NOT log an exposure (only [get] of a param does).
+     */
     val enrolled: Boolean get() = group != null
+
+    // On-read exposure: the first param read of an enrolled assignment logs one
+    // exposure. Called by get(), not by peek().
+    private fun maybeExpose() {
+        val cb = onExpose
+        if (cb != null && !exposed) {
+            exposed = true
+            cb()
+        }
+    }
 
     /**
      * Read a resolved param: the assigned variant's override, else the universe
      * default, else [fallback]. Works even when not enrolled (variant layer is
-     * absent, so you get `universeDefault ?? fallback`). Never throws.
+     * absent, so you get `universeDefault ?? fallback`). Never throws. The first
+     * enrolled read logs the single exposure; use [peek] to suppress it.
      */
     @JvmOverloads
     fun get(field: String, fallback: Any? = null): Any? {
+        maybeExpose()
+        return lookup(field, fallback)
+    }
+
+    /**
+     * Read a resolved param WITHOUT logging an exposure — the read-only
+     * counterpart to [get] (spec step 7 opt-out). Same lookup semantics.
+     */
+    @JvmOverloads
+    fun peek(field: String, fallback: Any? = null): Any? = lookup(field, fallback)
+
+    private fun lookup(field: String, fallback: Any?): Any? {
         val v = params[field]
         return if (v == null && !params.containsKey(field)) fallback else v
     }
@@ -219,6 +255,30 @@ internal object Eval {
     }
 
     /**
+     * Resolve a forced override group for [uid] (spec step 1): ID overrides
+     * (tier 1) beat cohort/GK overrides (tier 2); within cohort overrides the first
+     * (pre-sorted by priority) gate that passes wins. Returns the forced group name
+     * or null. The caller applies eligibility + group-existence (forced-but-gated).
+     * Mirrors @shipeasy/core resolveForcedGroup; [evalGateByName] is the caller's
+     * gate-lookup closure over the flags blob.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun resolveForcedGroup(
+        exp: Map<String, Any?>,
+        uid: String,
+        evalGateByName: (String) -> Boolean,
+    ): String? {
+        (exp["idOverrides"] as? Map<String, Any?>)?.let { idov ->
+            (idov[uid] as? String)?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        (exp["cohortOverrides"] as? List<Map<String, Any?>>)?.forEach { co ->
+            val gate = co["gate"] as? String
+            if (gate != null && evalGateByName(gate)) return co["group"] as? String
+        }
+        return null
+    }
+
+    /**
      * Targeting → universe holdout → holdout gate → sticky → allocation (pooled
      * or legacy) → weighted group split. The single local mirror of
      * @shipeasy/core's `classifyExperiment` (see the TS `classifyExperimentLocal`).
@@ -288,6 +348,21 @@ internal object Eval {
             val name = g["name"] as? String ?: "control"
             val gp = (g["params"] as? Map<String, Any?>) ?: emptyMap()
             return ExpStanding.group(name, mergeParams(paramDefaults, gp))
+        }
+
+        // Durable overrides (spec step 1, forced-but-gated). Reached only after the
+        // unit passes targeting and is not held out, so an override may now pin the
+        // group — bypassing allocation + the weighted pick but NOT the gates above.
+        // ID overrides (tier 1) beat cohort/GK overrides (tier 2); a forced group
+        // that no longer exists falls through to normal allocation. No-op when
+        // unconfigured, so v1/v2 stay byte-identical. Mirrors @shipeasy/core.
+        val forced = resolveForcedGroup(exp, uid, evalGateByName)
+        if (forced != null) {
+            val g = groups.firstOrNull { (it["name"] as? String) == forced }
+            if (g != null) {
+                if (store != null && expName != null) store.set(uid, expName, StickyEntry(forced, salt8))
+                return asGroup(g)
+            }
         }
 
         // Sticky short-circuit (doc 20 §2): an enrolled unit whose stored salt

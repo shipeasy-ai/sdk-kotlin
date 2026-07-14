@@ -392,8 +392,16 @@ class Engine(
         for ((name, exp) in candidates) {
             val c = evalExperiment(name, exp, u)
             if (c.state == ExpStanding.State.GROUP) {
-                postExposure(u, name, c.group ?: "control")
-                return@runCatching Assignment(name, c.group, c.params ?: emptyMap())
+                val group = c.group ?: "control"
+                // On-read exposure (spec step 7): defer the single exposure to the
+                // first param read via the callback, instead of firing it here at
+                // assign time.
+                return@runCatching Assignment(
+                    name,
+                    c.group,
+                    c.params ?: emptyMap(),
+                    onExpose = { postExposure(u, name, group) },
+                )
             }
             // "holdout"/"out": try the next candidate — under pooling only one slice
             // can match, so the loop naturally lands on the winner (or falls through).

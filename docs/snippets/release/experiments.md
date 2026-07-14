@@ -14,11 +14,13 @@ val flags = Client(currentUser)
 //   .name     — the experiment the unit landed in, or null when not enrolled
 //   .group    — the assigned variant, or null when not enrolled
 //   .enrolled — == (group != null)
-//   .get(field, fallback) — variant override ?? universe default ?? fallback
-// Server: assign() takes no arg (user bound at construction).
+//   .get(field, fallback)  — variant override ?? universe default ?? fallback; logs the exposure on first read
+//   .peek(field, fallback) — same value, read-only (never logs an exposure)
+// Server: assign() takes no arg (user bound at construction). assign() is
+// side-effect free; the first get() read logs one deduped exposure.
 val exp = flags.universe("{{EXPERIMENT_KEY}}").assign()
 
-render(exp.get("primary_label", "Sign up")) // always safe — falls back when not enrolled
+render(exp.get("primary_label", "Sign up")) // always safe — falls back when not enrolled; first read logs the exposure
 
 // on conversion — same bound Client, no user arg (unit comes from the bound bag)
 // track(event, props = emptyMap()): event = the metric; props = optional event

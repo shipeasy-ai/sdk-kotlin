@@ -89,19 +89,27 @@ An `InMemoryAnonStore` ships for tests. The stable id is readable as
 
 ## Exposure logging
 
-`universe(name).assign()` auto-logs a single, deduped exposure when the unit is
-enrolled — you don't call anything separately. The unit is derived from the bound
+`universe(name).assign()` is side-effect free. The exposure fires on the **first
+`get()` read** of a param when the unit is enrolled — reading *is* the exposure,
+so you don't call anything separately. The unit is derived from the bound
 `Client` (its `user_id`, else `anonymous_id`):
 
 ```kotlin
 val flags = Client(currentUser)
-flags.universe("hero_cta").assign() // enrolled → one deduped exposure fires
+val cta = flags.universe("hero_cta").assign() // no exposure yet
+cta.get("primary_label", "Sign up")           // enrolled → one deduped exposure fires here
 ```
 
-Repeated `assign()` calls for the same `(unit, experiment, group)` collapse to a
-single exposure per process. On the server, `assign()` always auto-logs on
-enrolment — there is no read-without-exposure form. See
-[Experiments](experiments.md).
+Repeated `get()` reads for the same `(unit, experiment, group)` collapse to a
+single exposure: deduped per process and durably per `(unit, experiment, group)`
+server-side. To read a param **without** logging an exposure — e.g. inspecting a
+value you aren't presenting — use `peek(field, fallback)`:
+
+```kotlin
+cta.peek("primary_label", "Sign up") // read-only — never logs an exposure
+```
+
+See [Experiments](experiments.md).
 
 ## Change listeners — `onChange`
 

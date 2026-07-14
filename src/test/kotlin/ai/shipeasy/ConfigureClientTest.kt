@@ -186,9 +186,9 @@ class ConfigureClientTest {
     }
 
     @Test
-    fun boundClientAssignAutoLogsExposure() {
-        // universe(u).assign() auto-logs a single exposure when enrolled; an
-        // override makes the user "enrolled" so the exposure event fires.
+    fun boundClientAssignAutoLogsExposureOnRead() {
+        // universe(u).assign() defers the single exposure to the first param read
+        // (on-read exposure); an override makes the user "enrolled" so it fires.
         val sent = captureEvents { engine ->
             // Seed a real running experiment in universe "u" so assign finds it.
             engine.applyDataForTest(
@@ -205,13 +205,38 @@ class ConfigureClientTest {
             )
             engine.overrideExperiment("price_test", group = "treatment", params = null)
             installEngineForTests(engine)
-            Client(mapOf("user_id" to "u_9")).universe("u").assign()
+            // assign() alone logs nothing; the first get() fires the exposure.
+            Client(mapOf("user_id" to "u_9")).universe("u").assign().get("anything")
         }
         val ev = sent.single()
         assertEquals("exposure", ev["type"])
         assertEquals("price_test", ev["experiment"])
         assertEquals("treatment", ev["group"])
         assertEquals("u_9", ev["user_id"])
+    }
+
+    @Test
+    fun peekReadDoesNotLogExposure() {
+        // peek() reads a param WITHOUT firing the exposure (on-read opt-out).
+        val sent = captureEvents { engine ->
+            engine.applyDataForTest(
+                flags = mapOf("gates" to emptyMap<String, Any?>()),
+                experiments = mapOf(
+                    "universes" to mapOf("u" to mapOf("holdout_range" to null)),
+                    "experiments" to mapOf(
+                        "price_test" to mapOf(
+                            "universe" to "u", "allocationPct" to 10000, "salt" to "s", "status" to "running",
+                            "groups" to listOf(mapOf("name" to "control", "weight" to 10000, "params" to emptyMap<String, Any?>())),
+                        ),
+                    ),
+                ),
+            )
+            engine.overrideExperiment("price_test", group = "treatment", params = null)
+            installEngineForTests(engine)
+            val a = Client(mapOf("user_id" to "u_9")).universe("u").assign()
+            a.peek("anything") // peek → no exposure
+        }
+        assertTrue(sent.isEmpty())
     }
 
     // ---- helpers ----

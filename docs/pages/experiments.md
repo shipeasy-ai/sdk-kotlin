@@ -2,9 +2,10 @@
 
 Experiments are read by **universe**. A universe is a mutual-exclusion pool: a
 unit lands in **at most one** experiment in it. `assign()` picks that experiment
-(if any), returns the assigned group plus its resolved parameters, and auto-logs
-a single exposure. You read parameters with `assign().get(field, fallback)` and
-record a conversion with `track`.
+(if any) and returns the assigned group plus its resolved parameters — it is
+side-effect free. The exposure fires on the **first `get()` read** of a param;
+use `peek()` to read without logging one. You read parameters with
+`assign().get(field, fallback)` and record a conversion with `track`.
 
 ## Read an experiment
 
@@ -30,9 +31,14 @@ class Assignment {
     val name: String?      // the experiment the unit landed in, or null when not enrolled
     val group: String?     // the assigned variant, or null when not enrolled
     val enrolled: Boolean  // == (group != null)
-    fun get(field: String, fallback: Any? = null): Any? // variant ?? universe default ?? fallback
+    fun get(field: String, fallback: Any? = null): Any?  // variant ?? universe default ?? fallback — logs the exposure on first read
+    fun peek(field: String, fallback: Any? = null): Any? // same resolution, but read-only — never logs an exposure
 }
 ```
+
+The first `get(...)` read logs a single (deduped) exposure when the unit is
+enrolled; `peek(...)` resolves the same value without ever logging one — reach
+for it when you're inspecting a param but not actually presenting the treatment.
 
 When the unit isn't enrolled (targeting / holdout / allocation), `enrolled` is
 `false`, `group` and `name` are `null`, and `get(field, fallback)` returns the
@@ -86,6 +92,8 @@ for (user in users) {
 
 ## Exposure logging
 
-By default `assign()` auto-logs a single (deduped) exposure when the unit is
-enrolled. The server always auto-logs on enrolment — there is no
-read-without-exposure form. See [Advanced](advanced.md).
+`assign()` is side-effect free; the exposure fires on the **first `get()` read**
+of a param when the unit is enrolled. It's deduped per process and durably per
+`(unit, experiment, group)` server-side, so re-reads never double-count. Use
+`peek(field, fallback)` to read a param without logging an exposure. See
+[Advanced](advanced.md).
