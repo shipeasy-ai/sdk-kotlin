@@ -78,6 +78,21 @@ class SeeTest {
     }
 
     @Test
+    fun inlineExtrasOnToMergeOverPriorExtras() {
+        val (c, sent) = captureClient()
+        // .extras before .to seeds keys; the inline .to(outcome, map) form folds
+        // on top (later wins on a repeated key), so ordering is irrelevant.
+        c.see(RuntimeException("x")).causesThe("checkout")
+            .extras(mapOf("order_id" to "o1", "attempt" to 1))
+            .to("use cached prices", mapOf("attempt" to 2, "region" to "eu"))
+        val extras = sent[0]["extras"]!!.jsonObject
+        assertEquals("o1", extras.str("order_id"))              // from .extras
+        assertEquals(2, extras["attempt"]!!.jsonPrimitive.content.toInt()) // inline .to wins
+        assertEquals("eu", extras.str("region"))               // added by inline .to
+        assertEquals("use cached prices", sent[0].str("outcome"))
+    }
+
+    @Test
     fun violationUsesViolationKind() {
         val (c, sent) = captureClient()
         c.seeViolation("large query").causesThe("search results").to("be trimmed")

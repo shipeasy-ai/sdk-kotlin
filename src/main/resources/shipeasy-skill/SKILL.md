@@ -81,15 +81,18 @@ Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/configuration.md> ·
 ## Experiments + track (Client-only, end to end)
 
 Experiments are read by UNIVERSE (a mutual-exclusion pool — the unit lands in ≤1
-experiment). `assign()` picks it, resolves params, and auto-logs one exposure.
+experiment). `assign()` picks it and resolves params; it's side-effect free. The
+exposure fires on the first `get()` read (deduped per process and durably per
+`(unit, experiment, group)`); use `peek()` to read a param without logging one.
 
 ```kotlin
 val flags = Client(currentUser)                     // construct once per callsite
-val cta = flags.universe("hero_cta").assign()       // Assignment
+val cta = flags.universe("hero_cta").assign()       // Assignment (no exposure yet)
 // cta.name: String? (experiment), cta.group: String?, cta.enrolled: Boolean
-// cta.get(field, fallback): variant override ?? universe default ?? fallback
+// cta.get(field, fallback):  variant override ?? universe default ?? fallback (logs exposure on first read)
+// cta.peek(field, fallback): same value, read-only (never logs an exposure)
 
-render(cta.get("primary_label", "Sign up"))         // always safe (auto-logs when enrolled)
+render(cta.get("primary_label", "Sign up"))         // always safe — first read logs one exposure when enrolled
 flags.track("purchase", mapOf("amount" to 49))      // conversion for the bound user
 ```
 
@@ -106,9 +109,11 @@ catch (e: Exception) {
 }
 ```
 
-`to(outcome)` is the terminal — without it nothing is sent. `seeViolation(name)`
-for non-exceptions; `controlFlowException(e).because("...")` to mark expected
-(reports nothing). Reference:
+`to(outcome)` is the terminal — without it nothing is sent. Extras can also ride
+the terminal inline as `to(outcome, map)` (equivalent to a final `.extras(...)`,
+later wins — no ordering to remember). `seeViolation(name)` for non-exceptions;
+`controlFlowException(e).because("...")` to mark expected (reports nothing).
+Reference:
 <https://shipeasy-ai.github.io/sdk-kotlin/pages/error-reporting.md> · snippet
 <https://shipeasy-ai.github.io/sdk-kotlin/snippets/ops/see.md>
 

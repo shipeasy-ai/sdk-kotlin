@@ -32,7 +32,14 @@ The chain:
 - `to(outcome)` — **terminal**: builds the wire event and fires the report.
   If you never call `to()`, **nothing is sent**. Calling `to()` twice is a no-op.
 
-`causesThe()` and `extras()` may be called in any order before `to()`.
+`causesThe()` and `extras()` may be called in any order before `to()`. You can
+also pass the extras inline on the terminal — `to(outcome, map)` is equivalent to
+a final `extras(...)` (it folds over any earlier `extras()`, later wins), so there
+is no ordering to remember:
+
+```kotlin
+see(e).causesThe("checkout").to("use the backup processor", mapOf("order_id" to order.id))
+```
 
 ## Non-exception problems — `seeViolation`
 

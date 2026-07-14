@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "ai.shipeasy"
-version = "0.16.0"
+version = "0.18.0"
 
 repositories { mavenCentral() }
 

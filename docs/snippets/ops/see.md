@@ -32,6 +32,21 @@ try {
 }
 ```
 
+Or pass the extras inline on `.to(outcome, map)` — equivalent to a final
+`.extras(...)` (folds over any earlier `.extras`, later wins), so there is no
+ordering to remember:
+
+```kotlin
+import ai.shipeasy.see
+
+try {
+    charge(order)
+} catch (e: Exception) {
+    // .to(outcome, map)     terminal + extras in one call
+    see(e).causesThe("checkout").to("use cached prices", mapOf("order_id" to oid))
+}
+```
+
 ### Report a non-exception violation
 
 ```kotlin

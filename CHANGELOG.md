@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.18.0 — 2026-07-13
+
+### see(): inline extras on `to(outcome, extras)`
+
+- **`to(outcome, extras)`** — the terminal now accepts the extras inline, e.g.
+  `see(e).causesThe("checkout").to("use cached prices", mapOf("order_id" to oid))`.
+  It is equivalent to a final `extras(...)` call — it folds over any earlier
+  `extras()` (later wins on a repeated key) — so there is no longer an ordering to
+  remember. The existing `to("outcome")` form is unchanged (`extras` defaults to
+  `null`), so every current call site keeps working.
+
+## 0.17.0 — 2026-07-08
+
+### Exposure fires on read, not on assign (+ `peek` opt-out)
+
+`universe(name).assign()` is now **side-effect free** on the server. The single,
+deduped exposure fires on the **first `get()` read** of a param when the unit is
+enrolled — reading *is* the exposure — instead of eagerly at `assign()` time. So
+you can call `assign()`, inspect `enrolled`/`group`, and branch without ever
+logging an exposure until you actually read a param to present the treatment.
+
+- **New `Assignment.peek(field, fallback)`** — the read-only counterpart to
+  `get`. It resolves the same **variant override ?? universe default ?? fallback**
+  value but **never logs an exposure**. Reach for it when you're inspecting a
+  param you aren't presenting.
+- **Durable dedup.** The exposure is deduped per process **and** durably per
+  `(unit, experiment, group)` server-side, so repeated reads (or a re-run on the
+  next request) never double-count.
+
+**BEHAVIOUR CHANGE.** Before 0.17.0 the exposure fired at `assign()`. If you
+relied on `assign()` alone recording an exposure, read a param with `get(...)`
+at the point you present the treatment (which you already do to render it). This
+also means a branch that calls `assign()` but never reads a param no longer logs
+a spurious exposure.
+
+### Durable forced-but-gated ID / cohort overrides
+
+The experiment resolver now honours durable **ID overrides** and **cohort/gate
+overrides** that are *forced but still gated*: a matched override pins the unit's
+group **only if** the unit passes targeting and isn't held out — a forced pin
+never leaks the treatment to an untargeted or held-out unit. ID overrides beat
+cohort overrides. This rides the experiments blob (no new user-facing SDK API).
+Running experiments are byte-identical; the new resolution order rides
+`hash_version: 3`.
+
 ## 0.16.0 — 2026-07-08
 
 ### Environment-derived network & telemetry (egress) defaults

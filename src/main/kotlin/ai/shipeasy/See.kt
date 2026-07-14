@@ -24,14 +24,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * Dispatch model (differs from TS, which uses a microtask): `to(outcome)` is
  * the terminal — it builds the wire event and fire-and-forgets the POST to
  * `/collect`. `causesThe()` and `extras()` are chainable setters that may be
- * called in any order *before* `to()`. If you never call `to()`, nothing is
- * sent. Reporting never blocks and never throws into caller code.
+ * called in any order *before* `to()`; `to()` also accepts the extras inline as
+ * a second arg (`to(outcome, mapOf(...))`), so there is no ordering trap to
+ * remember. If you never call `to()`, nothing is sent. Reporting never blocks
+ * and never throws into caller code.
  *
  * If you don't know the consequence of an exception, don't catch it.
  */
 
 /** The single runtime source of `sdk_version` on every see() wire event. */
-const val VERSION: String = "0.16.0"
+const val VERSION: String = "0.18.0"
 
 // ---- Limits (mirror core.ts; kept in sync with the worker's /collect) ----
 internal const val SEE_MAX_MESSAGE = 500
@@ -229,9 +231,16 @@ class SeeChain internal constructor(
         return this
     }
 
-    /** Terminal: build the event and fire-and-forget the report. Idempotent. */
-    fun to(outcome: String) {
+    /**
+     * Terminal: build the event and fire-and-forget the report. Idempotent.
+     *
+     * [inlineExtras] may be passed inline here as the trailing form
+     * `to("outcome", mapOf("order_id" to oid))` — merged like a final
+     * [extras] call (later wins), so there is no ordering trap to remember.
+     */
+    fun to(outcome: String, inlineExtras: Map<String, Any?>? = null) {
         if (done) return
+        if (inlineExtras != null) extras(inlineExtras)
         done = true
         this.outcome = outcome
         runCatching {
