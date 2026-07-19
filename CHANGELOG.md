@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.18.1 — 2026-07-19
+
+### fix: honor the gatekeeper `stack` in local gate evaluation
+
+Local gate evaluation now evaluates a gate's ordered gatekeeper `stack` when the
+KV blob ships one, matching `@shipeasy/core`'s `evalGatekeeper` and the edge
+worker. Previously it read only the flat `rules` + `rolloutPct`, which are a
+lossy approximation of a modern gate: a whitelist condition at 100% followed by a
+0% public rollout flattens to `rules:[project_id in [...]]`, `rolloutPct:0`,
+which the flat path wrongly read as "matches the whitelist **and** is in the 0%
+bucket" = never true. Whitelisted callers were incorrectly denied.
+
+Each stack entry is evaluated top-to-bottom; the first `condition` whose rules
+match (`pass`: `all`|`any`) **and** whose per-condition rollout bucket hits — or
+the first `rollout` bucket that hits — passes the gate. Per-condition rollouts,
+`bucketBy`, per-entry salts, and time-based `ramp` interpolation are all honored
+(cross-SDK contract: truncating-toward-zero integer division, 64-bit
+intermediate). Stack-less gates keep the exact legacy flat behavior. No hash
+change, so no re-bucketing.
+
 ## 0.18.0 — 2026-07-13
 
 ### see(): inline extras on `to(outcome, extras)`

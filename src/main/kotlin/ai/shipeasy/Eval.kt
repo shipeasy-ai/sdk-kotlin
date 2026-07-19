@@ -215,11 +215,88 @@ internal object Eval {
         }
     }
 
+    /**
+     * Effective rollout % (basis points) for a stack entry at wall-clock [now]
+     * (epoch ms). A `condition` with no explicit `rolloutPct` defaults to 100%
+     * (match ⇒ pass); a `rollout` to 0%. A `ramp` linearly interpolates
+     * `from`→`to` over `[startAt, startAt+durationMs]` using integer division that
+     * truncates toward zero, with a 64-bit intermediate for `delta*elapsed` — the
+     * cross-SDK contract (experiment-platform/04-evaluation.md). Mirrors the
+     * canonical `effectivePct` in `packages/core/src/eval/gate.ts`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun effectivePct(entry: Map<String, Any?>, now: Long): Int {
+        val isCondition = entry["type"] == "condition"
+        val base = (entry["rolloutPct"] as? Number)?.toInt() ?: if (isCondition) 10000 else 0
+        val ramp = entry["ramp"] as? Map<String, Any?> ?: return base
+        val startAt = (ramp["startAt"] as Number).toLong()
+        val dur = (ramp["durationMs"] as Number).toLong()
+        val from = (ramp["from"] as Number).toInt()
+        val to = (ramp["to"] as Number).toInt()
+        if (now <= startAt) return from
+        if (now >= startAt + dur) return to
+        val delta = (to - from).toLong() // signed, 64-bit intermediate
+        val elapsed = now - startAt
+        val pct = from + (delta * elapsed / dur).toInt() // truncates toward zero
+        return pct.coerceIn(0, 10000)
+    }
+
+    /**
+     * Hash the caller into `[0, 10000)` and test against [pct]. No-unit contract
+     * (experiment-platform/18): a fully-rolled bucket is on for everyone without a
+     * unit id; a fractional one needs a stable unit, so it is off. Mirrors the
+     * canonical `bucketHit`.
+     */
+    private fun bucketHit(pct: Int, uid: String?, salt: String): Boolean {
+        if (pct <= 0) return false
+        if (uid.isNullOrEmpty()) return pct >= 10000
+        if (pct >= 10000) return true
+        return Murmur3.bucket("$salt:$uid", 10000) < pct
+    }
+
+    /**
+     * Evaluate one ordered gatekeeper-stack entry. A `condition` gates on its
+     * rules (`pass`: "all"|"any") AND its own per-condition rollout, defaulting the
+     * salt to the entry id so each step buckets independently; a `rollout` is a
+     * bare bucket over the gate salt. Mirrors the canonical `evalStackEntry`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun evalStackEntry(entry: Map<String, Any?>, user: Map<String, Any?>, fallbackSalt: String, now: Long): Boolean {
+        if (entry["type"] == "condition") {
+            val rules = entry["rules"] as? List<Map<String, Any?>> ?: emptyList()
+            if (rules.isEmpty()) return false
+            val mode = entry["pass"] as? String ?: "all"
+            val matched = if (mode == "any") rules.any { matchRule(it, user) } else rules.all { matchRule(it, user) }
+            if (!matched) return false
+            // Rules matched — bucket at the per-condition rollout. A distinct
+            // default salt (the entry id) keeps each step's bucket independent yet
+            // stable across edits.
+            val salt = (entry["salt"] as? String)?.ifEmpty { null } ?: (entry["id"] as? String ?: fallbackSalt)
+            return bucketHit(effectivePct(entry, now), pickIdentifier(user, entry["bucketBy"] as? String), salt)
+        }
+        // rollout — salt fallback is the gate salt so existing entries don't re-bucket.
+        val salt = (entry["salt"] as? String)?.ifEmpty { null } ?: fallbackSalt
+        return bucketHit(effectivePct(entry, now), pickIdentifier(user, entry["bucketBy"] as? String), salt)
+    }
+
     @Suppress("UNCHECKED_CAST")
     fun evalGate(gate: Map<String, Any?>?, user: Map<String, Any?>): Boolean {
         if (gate == null) return false
         if (enabled(gate["killswitch"])) return false
         if (!enabled(gate["enabled"])) return false
+        // Modern gatekeepers ship an ordered `stack`; evaluate it top-to-bottom and
+        // pass on the first entry whose rules match AND whose bucket hits. This is
+        // the canonical model — the flat `rules`/`rolloutPct` below are a lossy
+        // approximation (a whitelist condition at 100% collapses to `rolloutPct: 0`
+        // once the public rollout is 0%, which the flat path would wrongly read as
+        // "never"). Mirrors @shipeasy/core evalGatekeeper — keep the two in sync.
+        val stack = gate["stack"] as? List<Map<String, Any?>>
+        if (stack != null && stack.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            val salt = (gate["salt"] as? String) ?: ""
+            for (entry in stack) if (evalStackEntry(entry, user, salt, now)) return true
+            return false
+        }
         (gate["rules"] as? List<Map<String, Any?>>)?.forEach { if (!matchRule(it, user)) return false }
         val rolloutPct = (gate["rolloutPct"] as? Number)?.toInt() ?: 0
         // No unit id (an unidentified request before any anon id is minted): a
