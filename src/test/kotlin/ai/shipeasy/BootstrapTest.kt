@@ -49,6 +49,29 @@ class BootstrapTest {
         assertFalse(tag.contains("data-anon-id"))
     }
 
+    @Test fun bootstrapScriptTagCarriesIdentifiedUser() {
+        val tag = client().bootstrapScriptTag(
+            mapOf("user_id" to "u1", "email" to "a@b.com", "anonymous_id" to "anon-1"),
+            anonId = "anon-1",
+        )
+        assertTrue(tag.contains("data-anon-id=\"anon-1\""))
+        val raw = Regex("data-user=\"([^\"]*)\"").find(tag)!!.groupValues[1]
+        val decoded = raw.replace("&quot;", "\"").replace("&amp;", "&")
+            .replace("&lt;", "<").replace("&gt;", ">")
+        // Keys sorted; anonymous_id dropped.
+        assertEquals("{\"email\":\"a@b.com\",\"user_id\":\"u1\"}", decoded)
+    }
+
+    @Test fun bootstrapScriptTagOmitsUserWhenAnonymous() {
+        // Only anonymous_id → no identifying trait remains.
+        assertFalse(
+            client().bootstrapScriptTag(mapOf("anonymous_id" to "anon-1"), anonId = "anon-1")
+                .contains("data-user"),
+        )
+        // Empty user → no data-user.
+        assertFalse(client().bootstrapScriptTag(emptyMap()).contains("data-user"))
+    }
+
     @Test fun i18nScriptTag() {
         val tag = client().i18nScriptTag("client_pub", "fr:prod")
         assertTrue(tag.contains("src=\"https://cdn.shipeasy.ai/sdk/i18n/loader.js\""))

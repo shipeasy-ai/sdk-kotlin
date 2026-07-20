@@ -155,3 +155,12 @@ val head = bootstrapScriptTag(user, anonId = anonId) +
 
 `bootstrapScriptTag` also accepts `i18nProfile` and `baseUrl` (default
 `https://cdn.shipeasy.ai`).
+
+### Identity coherence (no anon→identified flip)
+
+When you pass an **identified** `user`, the tag also carries that identity as a
+`data-user` attribute (the user's traits, minus `anonymous_id`, as escaped JSON).
+The browser SDK adopts it on first paint, so a Kotlin-backend + JS-frontend app
+renders as the identified user immediately — no anonymous-then-identified flip.
+An anonymous request (only `anonymous_id`, or an empty user) emits **no**
+`data-user`. See `experiment-platform/18-identity-bucketing.md`.

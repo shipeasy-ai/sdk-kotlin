@@ -155,7 +155,9 @@ Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/testing.md>
   Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/openfeature.md>
 - **Advanced:** `privateAttributes`, `stickyStore = InMemoryStickyStore()`,
   `AnonIdFilter` (servlet) for logged-out bucketing, package-level `onChange`
-  (requires `poll = true`), `bootstrapScriptTag` SSR. Reference:
+  (requires `poll = true`), `bootstrapScriptTag` SSR (carries the identified
+  user as `data-user` so the browser adopts identity on first paint — no
+  anon→identified flip). Reference:
   <https://shipeasy-ai.github.io/sdk-kotlin/pages/advanced.md>
 - **Quiet outside production (0.16.0+):** the SDK is offline by default when the
   environment isn't production — no fetch, `track`, `see()`, or telemetry until

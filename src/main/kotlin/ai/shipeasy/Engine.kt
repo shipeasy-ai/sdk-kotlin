@@ -546,7 +546,27 @@ class Engine(
         attrs.append(attr("data-i18n-profile", profile)).append(' ')
         attrs.append(attr("data-api-url", base))
         if (!anonId.isNullOrEmpty()) attrs.append(' ').append(attr("data-anon-id", anonId))
+        // Carry the server-identified user so the browser SDK adopts identity on
+        // first paint, killing the anon→identified flip. See
+        // experiment-platform/18-identity-bucketing.md.
+        val identity = identityAttrs(user)
+        if (identity != null) attrs.append(' ').append(attr("data-user", identity))
         return "<script src=\"${escapeAttr("$base/sdk/bootstrap.js")}\" $attrs></script>"
+    }
+
+    /**
+     * JSON of the user's identity traits with `anonymous_id` and null values
+     * dropped, keys sorted for stable output — or null when nothing identifying
+     * remains (an anonymous request emits no `data-user`).
+     */
+    private fun identityAttrs(user: Map<String, Any?>?): String? {
+        if (user.isNullOrEmpty()) return null
+        val traits = user.entries
+            .filter { it.key != "anonymous_id" && it.value != null }
+            .sortedBy { it.key }
+            .associateTo(LinkedHashMap()) { it.key to it.value }
+        if (traits.isEmpty()) return null
+        return jsonStr(traits)
     }
 
     /**
