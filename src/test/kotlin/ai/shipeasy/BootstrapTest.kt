@@ -78,4 +78,59 @@ class BootstrapTest {
         assertTrue(tag.contains("data-key=\"client_pub\""))
         assertTrue(tag.contains("data-profile=\"fr:prod\""))
     }
+
+    // --- every argument is optional: the tags read what configure() set ------
+
+    /** A test-mode engine carrying the SSR tag defaults configure() would set. */
+    private fun configured(): Engine = Engine.forTesting(
+        clientKey = "sdk_client_cfg",
+        profile = "fr:prod",
+        projectId = "proj_cfg",
+        cdnBaseUrl = "https://cdn.example.test",
+    )
+
+    @Test fun i18nScriptTagDefaultsFromConfigure() {
+        val tag = configured().i18nScriptTag()
+        assertTrue(tag.contains("src=\"https://cdn.example.test/sdk/i18n/loader.js\""))
+        assertTrue(tag.contains("data-key=\"sdk_client_cfg\""))
+        assertTrue(tag.contains("data-profile=\"fr:prod\""))
+    }
+
+    @Test fun bootstrapScriptTagNeedsNoUser() {
+        val tag = configured().bootstrapScriptTag()
+        assertTrue(tag.contains("src=\"https://cdn.example.test/sdk/bootstrap.js\""))
+        assertTrue(tag.contains("data-i18n-profile=\"fr:prod\""))
+        assertFalse(tag.contains("data-user"))
+    }
+
+    @Test fun devtoolsScriptTagDefaultsFromConfigure() {
+        val tag = configured().devtoolsScriptTag()
+        assertTrue(tag.contains("src=\"https://cdn.example.test/se-devtools.js\""))
+        assertTrue(tag.contains("data-project-id=\"proj_cfg\""))
+        assertTrue(tag.contains("data-client-api-key=\"sdk_client_cfg\""))
+        assertTrue(tag.contains("defer"))
+    }
+
+    @Test fun explicitArgumentsStillWin() {
+        val engine = configured()
+        val i18n = engine.i18nScriptTag("other_key", "de:prod")
+        assertTrue(i18n.contains("data-key=\"other_key\""))
+        assertTrue(i18n.contains("data-profile=\"de:prod\""))
+
+        val boot = engine.bootstrapScriptTag(mapOf("user_id" to "u1"), i18nProfile = "de:prod")
+        assertTrue(boot.contains("data-i18n-profile=\"de:prod\""))
+
+        val dev = engine.devtoolsScriptTag("proj_other", clientKey = "other_key", defer = false)
+        assertTrue(dev.contains("data-project-id=\"proj_other\""))
+        assertTrue(dev.contains("data-client-api-key=\"other_key\""))
+        assertFalse(dev.contains("defer"))
+    }
+
+    @Test fun devtoolsTagRendersWhenUnconfigured() {
+        // A missing project id / client key renders anyway (the browser bundle
+        // reports what it needs) — a tag helper must never break a template.
+        val tag = client().devtoolsScriptTag()
+        assertTrue(tag.contains("src=\"https://cdn.shipeasy.ai/se-devtools.js\""))
+        assertTrue(tag.contains("data-project-id=\"\""))
+    }
 }

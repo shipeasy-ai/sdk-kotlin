@@ -148,8 +148,9 @@ Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/testing.md>
 ## Notes
 
 - **i18n:** the server SDK has no `t()`. Emit the loader tag via package-level
-  `i18nScriptTag(clientKey, profile)` (public client key) for SSR; rendering
-  happens in the browser client SDK. Reference:
+  `i18nScriptTag()` (public client key) for SSR — every argument is optional and
+  falls back to `configure(clientKey = ..., profile = ...)`; rendering happens in
+  the browser client SDK. Reference:
   <https://shipeasy-ai.github.io/sdk-kotlin/pages/i18n.md>
 - **OpenFeature:** no provider bundled — use `getFlag` / `getFlagDetail` directly.
   Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/openfeature.md>
@@ -157,7 +158,8 @@ Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/testing.md>
   `AnonIdFilter` (servlet) for logged-out bucketing, package-level `onChange`
   (requires `poll = true`), `bootstrapScriptTag` SSR (carries the identified
   user as `data-user` so the browser adopts identity on first paint — no
-  anon→identified flip). Reference:
+  anon→identified flip), `devtoolsScriptTag()` (hosted overlay: Shift+Alt+S or
+  `?se=1`; needs `projectId` + `clientKey` on `configure`). Reference:
   <https://shipeasy-ai.github.io/sdk-kotlin/pages/advanced.md>
 - **Quiet outside production (0.16.0+):** the SDK is offline by default when the
   environment isn't production — no fetch, `track`, `see()`, or telemetry until

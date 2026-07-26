@@ -88,6 +88,14 @@ fun configure(
     // runtime reader's last-resort guard swallows are reported to Shipeasy's own
     // project). Default OFF (reporting ON); always off in test/offline mode.
     disableInternalErrorReporting: Boolean = false,
+    // SSR tag defaults, read by [i18nScriptTag] / [bootstrapScriptTag] /
+    // [devtoolsScriptTag] whenever the callsite passes no argument. [clientKey]
+    // is the PUBLIC client key (never the server key); [projectId] is your
+    // `proj_...` id, which only the devtools overlay tag needs.
+    clientKey: String? = null,
+    profile: String? = null,
+    projectId: String? = null,
+    cdnBaseUrl: String? = null,
 ): Engine {
     synchronized(configureLock) {
         globalEngine?.let { return it }
@@ -104,6 +112,10 @@ fun configure(
             stickyStore = stickyStore,
             logLevel = logLevel,
             disableInternalErrorReporting = disableInternalErrorReporting,
+            clientKey = clientKey,
+            profile = profile,
+            projectId = projectId,
+            cdnBaseUrl = cdnBaseUrl,
         )
         globalEngine = engine
         // Fetch lifecycle owned by configure (the docs never tell a user to call
@@ -303,8 +315,13 @@ fun configureForTesting(
     flags: Map<String, Boolean> = emptyMap(),
     configs: Map<String, Any?> = emptyMap(),
     experiments: Map<String, Pair<String, Any?>> = emptyMap(),
+    // Same SSR tag defaults as [configure], so a test can exercise the tags.
+    clientKey: String? = null,
+    profile: String? = null,
+    projectId: String? = null,
+    cdnBaseUrl: String? = null,
 ): Engine {
-    val engine = Engine.forTesting()
+    val engine = Engine.forTesting(clientKey, profile, projectId, cdnBaseUrl)
     applyOverrides(engine, flags, configs, experiments)
     installReplace(engine, attributes)
     return engine
@@ -372,16 +389,41 @@ fun clearOverrides() = requireEngine("clearOverrides").clearOverrides()
  */
 fun onChange(listener: () -> Unit): () -> Unit = requireEngine("onChange").onChange(listener)
 
-/** SSR bootstrap `<script>` tag for a request (no key embedded), via the configured global engine. */
+/**
+ * SSR bootstrap `<script>` tag for a request (no key embedded), via the
+ * configured global engine. Every argument is optional: no [user] renders an
+ * anonymous request, and [i18nProfile] / [baseUrl] fall back to the `profile` /
+ * `cdnBaseUrl` passed to [configure].
+ */
 @JvmOverloads
 fun bootstrapScriptTag(
-    user: Map<String, Any?>,
+    user: Map<String, Any?> = emptyMap(),
     anonId: String? = null,
-    i18nProfile: String = "en:prod",
+    i18nProfile: String? = null,
     baseUrl: String? = null,
 ): String = requireEngine("bootstrapScriptTag").bootstrapScriptTag(user, anonId, i18nProfile, baseUrl)
 
-/** i18n loader `<script>` tag (public client key) for SSR, via the configured global engine. */
+/**
+ * i18n loader `<script>` tag (public client key) for SSR, via the configured
+ * global engine. Every argument is optional — [clientKey], [profile] and
+ * [baseUrl] fall back to what [configure] set, so the normal call is
+ * `i18nScriptTag()`.
+ */
 @JvmOverloads
-fun i18nScriptTag(clientKey: String, profile: String = "en:prod", baseUrl: String? = null): String =
+fun i18nScriptTag(clientKey: String? = null, profile: String? = null, baseUrl: String? = null): String =
     requireEngine("i18nScriptTag").i18nScriptTag(clientKey, profile, baseUrl)
+
+/**
+ * Devtools overlay `<script>` tag (hosted `se-devtools.js`; opens with
+ * Shift+Alt+S or `?se=1`), via the configured global engine. Every argument is
+ * optional — [projectId], [clientKey] and [baseUrl] fall back to what
+ * [configure] set. [defer] (default true) keeps the overlay off the critical
+ * rendering path.
+ */
+@JvmOverloads
+fun devtoolsScriptTag(
+    projectId: String? = null,
+    clientKey: String? = null,
+    baseUrl: String? = null,
+    defer: Boolean = true,
+): String = requireEngine("devtoolsScriptTag").devtoolsScriptTag(projectId, clientKey, baseUrl, defer)

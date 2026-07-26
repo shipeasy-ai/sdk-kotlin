@@ -37,6 +37,10 @@ exactly once.
 | `poll`              | `false`                       | `true` → fetch once and keep polling; `false` → one-shot fetch. |
 | `logLevel`          | `LogLevel.WARN`               | SDK log verbosity (`SILENT`, `ERROR`, `WARN`, `INFO`, `DEBUG`). |
 | `disableInternalErrorReporting` | `false`           | Opt out of self-reporting SDK-internal errors to Shipeasy. |
+| `clientKey`         | `null`                        | **Public** client key (`sdk_client_…`) — the default the SSR i18n / devtools tags carry. Never the server key. |
+| `profile`           | `null` (⇒ `"en:prod"`)        | Default i18n profile the SSR tags carry. |
+| `projectId`         | `null`                        | Project id (`proj_…`) read by `devtoolsScriptTag`. |
+| `cdnBaseUrl`        | `https://cdn.shipeasy.ai`     | CDN origin the SSR tags are built against. |
 
 The full options table with types lives on the [Installation](installation.md)
 page — that page is the canonical home for `configure()`.

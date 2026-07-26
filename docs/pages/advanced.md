@@ -148,13 +148,49 @@ import ai.shipeasy.i18nScriptTag
 val user = mapOf("user_id" to "u_123")
 
 // Two tags for the document <head>. The PUBLIC client key (not the server key)
-// goes on the i18n loader tag.
-val head = bootstrapScriptTag(user, anonId = anonId) +
-           i18nScriptTag(clientKey, "en:prod")
+// goes on the i18n loader tag — and it comes from configure(), so the callsite
+// does not repeat it.
+val head = bootstrapScriptTag(user, anonId = anonId) + i18nScriptTag()
 ```
 
-`bootstrapScriptTag` also accepts `i18nProfile` and `baseUrl` (default
-`https://cdn.shipeasy.ai`).
+### Every argument is optional
+
+All three tag functions fall back to what `configure()` set, so the bare call is
+the normal one — pass an argument only to override that one tag:
+
+| Function | Signature | Defaults from `configure` |
+| --- | --- | --- |
+| `i18nScriptTag` | `(clientKey?, profile?, baseUrl?)` | `clientKey`, `profile`, `cdnBaseUrl` |
+| `bootstrapScriptTag` | `(user = emptyMap(), anonId?, i18nProfile?, baseUrl?)` | anonymous request, `profile`, `cdnBaseUrl` |
+| `devtoolsScriptTag` | `(projectId?, clientKey?, baseUrl?, defer = true)` | `projectId`, `clientKey`, `cdnBaseUrl` |
+
+```kotlin
+configure(
+    apiKey = System.getenv("SHIPEASY_SERVER_KEY"),
+    clientKey = System.getenv("SHIPEASY_CLIENT_KEY"),  // PUBLIC key, for the tags
+    projectId = System.getenv("SHIPEASY_PROJECT_ID"),  // for the devtools tag
+    profile = "en:prod",
+)
+```
+
+A tag still renders when a value is missing (the browser bundle reports what it
+needs), but the SDK logs a warning naming the `configure` argument to fill in —
+once per argument, not once per render.
+
+### Devtools overlay tag
+
+`devtoolsScriptTag()` emits the hosted devtools overlay bundle — nothing to
+install, no overlay code in your artifact. It reads the project id and public
+client key off the tag and opens with **Shift+Alt+S** or on any page loaded with
+`?se=1`. It is `defer`red unless you pass `defer = false`: a developer tool never
+belongs on the critical rendering path.
+
+```kotlin
+import ai.shipeasy.devtoolsScriptTag
+
+// Render it for your own team only.
+val head = if (user.isStaff) devtoolsScriptTag() else ""
+```
 
 ### Identity coherence (no anon→identified flip)
 

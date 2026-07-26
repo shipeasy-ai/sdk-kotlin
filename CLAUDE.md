@@ -26,7 +26,8 @@ Users are taught exactly **two** things, and the docs must never drift from them
 
 Plus the top-level package functions that let users avoid the heavyweight object:
 `overrideFlag` / `overrideConfig` / `overrideExperiment` / `clearOverrides`,
-`onChange`, `bootstrapScriptTag` / `i18nScriptTag`, and the `see()` family.
+`onChange`, `bootstrapScriptTag` / `i18nScriptTag` / `devtoolsScriptTag`, and the
+`see()` family.
 
 **The `Engine` class is an internal detail. Do NOT document it.** It stays public
 for advanced/back-compat use, but no page, snippet, skill, or the README should

@@ -35,7 +35,8 @@ its own.
 
 A handful of top-level package functions cover everything else without naming a
 heavyweight object: `overrideFlag` / `overrideConfig` / `overrideExperiment` /
-`clearOverrides`, `onChange`, `bootstrapScriptTag` / `i18nScriptTag`, and the
+`clearOverrides`, `onChange`, `bootstrapScriptTag` / `i18nScriptTag` /
+`devtoolsScriptTag`, and the
 `see()` family.
 
 ## Shipping in an Android app? Use `ShipeasyClient`

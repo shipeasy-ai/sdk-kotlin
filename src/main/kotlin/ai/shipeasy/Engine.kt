@@ -98,7 +98,20 @@ class Engine(
     // track become no-ops and the client never reaches the network. See the
     // "Testing" section of the README.
     private val localMode: Boolean = false,
+    // SSR tag defaults. The tag helpers ([i18nScriptTag] / [bootstrapScriptTag] /
+    // [devtoolsScriptTag]) take every argument from here unless the callsite
+    // passes one, so a template calls `i18nScriptTag()` instead of repeating
+    // configuration. [clientKey] is the PUBLIC client key — never the server key,
+    // which must not reach a browser.
+    private val clientKey: String? = null,
+    private val profile: String? = null,
+    private val projectId: String? = null,
+    private val cdnBaseUrl: String? = null,
 ) : AutoCloseable {
+    // Missing-setting warnings already logged, keyed "helper.setting": a tag
+    // helper runs on every render and one misconfiguration must not log a line
+    // per request.
+    private val warnedTagSettings = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val baseUrl: String = (baseUrl ?: "https://api.shipeasy.ai").trimEnd('/')
     private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
 
@@ -530,14 +543,14 @@ class Engine(
      */
     @JvmOverloads
     fun bootstrapScriptTag(
-        user: Map<String, Any?>,
+        user: Map<String, Any?> = emptyMap(),
         anonId: String? = null,
-        i18nProfile: String = "en:prod",
+        i18nProfile: String? = null,
         baseUrl: String? = null,
     ): String {
         val payload = evaluate(user)
-        val base = cdnBase(baseUrl)
-        val profile = i18nProfile.ifEmpty { "en:prod" }
+        val base = cdnBaseFor(baseUrl)
+        val profile = profileFor(i18nProfile)
         val attrs = StringBuilder("data-se-bootstrap ")
         attrs.append(attr("data-flags", jsonStr(payload["flags"]))).append(' ')
         attrs.append(attr("data-configs", jsonStr(payload["configs"]))).append(' ')
@@ -572,13 +585,71 @@ class Engine(
     /**
      * Return the i18n loader `<script>` tag. The loader fetches translations for
      * the profile using the PUBLIC client key (safe to embed in HTML).
+     *
+     * Every argument is OPTIONAL and falls back to what `configure` set:
+     * [clientKey] to the configured client key, [profile] to the configured
+     * profile, [baseUrl] to the configured CDN base.
      */
     @JvmOverloads
-    fun i18nScriptTag(clientKey: String, profile: String = "en:prod", baseUrl: String? = null): String {
-        val base = cdnBase(baseUrl)
-        val p = profile.ifEmpty { "en:prod" }
+    fun i18nScriptTag(clientKey: String? = null, profile: String? = null, baseUrl: String? = null): String {
+        val base = cdnBaseFor(baseUrl)
+        val key = clientKeyFor(clientKey)
+        warnMissingTagSetting("i18nScriptTag", "clientKey", key)
         return "<script src=\"${escapeAttr("$base/sdk/i18n/loader.js")}\" " +
-            "${attr("data-key", clientKey)} ${attr("data-profile", p)}></script>"
+            "${attr("data-key", key)} ${attr("data-profile", profileFor(profile))}></script>"
+    }
+
+    /**
+     * Return the devtools overlay `<script>` tag. `se-devtools.js` is a hosted,
+     * self-executing bundle — nothing to install — that reads the project and the
+     * PUBLIC client key off the tag. The overlay opens with Shift+Alt+S or on any
+     * page loaded with `?se=1`.
+     *
+     * Every argument is OPTIONAL and falls back to what `configure` set.
+     * [defer] (default true) keeps the overlay off the critical rendering path —
+     * a developer tool is never needed for first paint.
+     */
+    @JvmOverloads
+    fun devtoolsScriptTag(
+        projectId: String? = null,
+        clientKey: String? = null,
+        baseUrl: String? = null,
+        defer: Boolean = true,
+    ): String {
+        val base = cdnBaseFor(baseUrl)
+        val pid = if (projectId.isNullOrEmpty()) (this.projectId ?: "") else projectId
+        val key = clientKeyFor(clientKey)
+        warnMissingTagSetting("devtoolsScriptTag", "projectId", pid)
+        warnMissingTagSetting("devtoolsScriptTag", "clientKey", key)
+        val attrs = StringBuilder(attr("data-project-id", pid))
+        attrs.append(' ').append(attr("data-client-api-key", key))
+        if (defer) attrs.append(" defer")
+        return "<script src=\"${escapeAttr("$base/se-devtools.js")}\" $attrs></script>"
+    }
+
+    /** CDN origin for a tag: the per-call override, else the configured base, else the default. */
+    private fun cdnBaseFor(override: String?): String =
+        cdnBase(if (override.isNullOrEmpty()) cdnBaseUrl else override)
+
+    /** i18n profile a tag carries: the per-call override, else configured, else the default. */
+    private fun profileFor(override: String?): String =
+        if (!override.isNullOrEmpty()) override
+        else if (!profile.isNullOrEmpty()) profile!!
+        else "en:prod"
+
+    /** The PUBLIC client key a tag carries. */
+    private fun clientKeyFor(override: String?): String =
+        if (!override.isNullOrEmpty()) override else (clientKey ?: "")
+
+    /**
+     * A tag built with no key / project id is not an error — it renders, and the
+     * browser bundle reports what it needs — but it is never what the caller
+     * wanted. Logged once per (helper, setting).
+     */
+    private fun warnMissingTagSetting(fnName: String, setting: String, value: String) {
+        if (value.isNotEmpty()) return
+        if (warnedTagSettings.putIfAbsent("$fnName.$setting", true) != null) return
+        Log.warn("$fnName(): no $setting — pass it, or set $setting in configure(); the tag will render without it")
     }
 
     private fun cdnBase(override: String?): String =
@@ -824,8 +895,21 @@ class Engine(
          * defaults (flag → false, config → null, experiment → not in experiment).
          */
         @JvmStatic
-        fun forTesting(): Engine = Engine(apiKey = "", disableTelemetry = true, localMode = true)
-            .also { it.initialized = true }
+        @JvmOverloads
+        fun forTesting(
+            clientKey: String? = null,
+            profile: String? = null,
+            projectId: String? = null,
+            cdnBaseUrl: String? = null,
+        ): Engine = Engine(
+            apiKey = "",
+            disableTelemetry = true,
+            localMode = true,
+            clientKey = clientKey,
+            profile = profile,
+            projectId = projectId,
+            cdnBaseUrl = cdnBaseUrl,
+        ).also { it.initialized = true }
 
         /**
          * Build a fully OFFLINE engine from pre-captured blobs — no network ever.

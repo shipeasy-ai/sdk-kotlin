@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.20.0 — 2026-07-26
+
+### feat: the SSR tag helpers take every argument from `configure`, plus a devtools tag
+
+- **`i18nScriptTag()` and `bootstrapScriptTag()` now take no required
+  arguments.** Each falls back to what `configure` was given — `clientKey` →
+  `clientKey`, `profile` / `i18nProfile` → `profile`, `baseUrl` → `cdnBaseUrl`,
+  and `bootstrapScriptTag`'s `user` → an anonymous request. Every argument is
+  still accepted and an explicit one wins, so a template calls `i18nScriptTag()`
+  instead of repeating configuration at each callsite.
+- **New `devtoolsScriptTag()`** emits the hosted devtools overlay bundle
+  (`se-devtools.js`) with `data-project-id` + `data-client-api-key`, `defer` by
+  default (pass `defer = false` to drop it). The overlay opens with
+  **Shift+Alt+S** or on any page loaded with `?se=1`. Its arguments are optional
+  the same way.
+- **New `configure` arguments** feeding those defaults: `clientKey` (the PUBLIC
+  client key), `profile`, `projectId`, `cdnBaseUrl` — also on
+  `configureForTesting` and `Engine.forTesting`.
+- A tag built with a missing key / project id still renders, and the SDK logs a
+  warning naming the argument to fill in — once per argument, not once per
+  render.
+- No behaviour change for existing callsites: an explicitly passed key/profile
+  still wins, and the profile fallback is still `"en:prod"` when nothing is
+  configured. Mirrors the Ruby SDK 3.7.0, Python 0.21.0, PHP 0.20.0 and Go 0.19.0.
+
 ## 0.19.0 — 2026-07-19
 
 ### feat: carry the server-identified user on the SSR bootstrap tag
