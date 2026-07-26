@@ -537,9 +537,10 @@ class Engine(
 
     /**
      * Return the cross-platform SSR bootstrap `<script>` tag for a request:
-     * se-bootstrap.js reads its `data-*` attributes and hydrates
-     * `window.__SE_BOOTSTRAP` (and writes the anon cookie). No SDK key is
-     * embedded — the server key must never reach the browser.
+     * /sdk/runtime.js reads its `data-*` attributes, installs `window.shipeasy`,
+     * republishes `window.__SE_BOOTSTRAP` for the npm client SDK and writes the
+     * anon cookie. No SDK key is embedded — the server key must never reach the
+     * browser.
      */
     @JvmOverloads
     fun bootstrapScriptTag(
@@ -551,7 +552,7 @@ class Engine(
         val payload = evaluate(user)
         val base = cdnBaseFor(baseUrl)
         val profile = profileFor(i18nProfile)
-        val attrs = StringBuilder("data-se-bootstrap ")
+        val attrs = StringBuilder("data-se-bootstrap data-se-boot ")
         attrs.append(attr("data-flags", jsonStr(payload["flags"]))).append(' ')
         attrs.append(attr("data-configs", jsonStr(payload["configs"]))).append(' ')
         attrs.append(attr("data-experiments", jsonStr(payload["experiments"]))).append(' ')
@@ -564,7 +565,7 @@ class Engine(
         // experiment-platform/18-identity-bucketing.md.
         val identity = identityAttrs(user)
         if (identity != null) attrs.append(' ').append(attr("data-user", identity))
-        return "<script src=\"${escapeAttr("$base/sdk/bootstrap.js")}\" $attrs></script>"
+        return "<script src=\"${escapeAttr("$base/sdk/runtime.js")}\" $attrs></script>"
     }
 
     /**
@@ -882,7 +883,7 @@ class Engine(
 
     companion object {
         /**
-         * CDN origin serving the static loader scripts (`/sdk/bootstrap.js`,
+         * CDN origin serving the static loader scripts (`/sdk/runtime.js`,
          * `/sdk/i18n/loader.js`) — distinct from the edge API the blobs come from.
          */
         private const val DEFAULT_CDN_BASE = "https://cdn.shipeasy.ai"
