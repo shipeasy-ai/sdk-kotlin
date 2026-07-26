@@ -33,7 +33,6 @@ import com.squareup.moshi.JsonClass
  *
  * @param profileId Target profile id to add keys to.
  * @param propertyKeys Keys to add. Insert-only — existing keys are reported back as `skipped`.
- * @param chunk Logical grouping the new keys are filed under. Defaults to `default`.
  */
 
 
@@ -45,11 +44,7 @@ data class PushI18nKeysRequest (
 
     /* Keys to add. Insert-only — existing keys are reported back as `skipped`. */
     @Json(name = "keys")
-    val propertyKeys: kotlin.collections.List<PushI18nKeysRequestKeysInner>,
-
-    /* Logical grouping the new keys are filed under. Defaults to `default`. */
-    @Json(name = "chunk")
-    val chunk: kotlin.String? = "default"
+    val propertyKeys: kotlin.collections.List<PushI18nKeysRequestKeysInner>
 
 ) {
 

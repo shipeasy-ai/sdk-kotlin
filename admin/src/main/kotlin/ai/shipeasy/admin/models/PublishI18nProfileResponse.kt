@@ -32,7 +32,6 @@ import com.squareup.moshi.JsonClass
  *
  * @param ok Always `true` on success.
  * @param profileId Profile that was published.
- * @param chunk Audit chunk label, or `null` when none was given.
  * @param publishedAt ISO-8601 timestamp of the publish.
  * @param version New KV snapshot version that was shipped.
  * @param keyCount Number of keys in the published snapshot.
@@ -52,10 +51,6 @@ data class PublishI18nProfileResponse (
     /* Profile that was published. */
     @Json(name = "profile_id")
     val profileId: kotlin.String,
-
-    /* Audit chunk label, or `null` when none was given. */
-    @Json(name = "chunk")
-    val chunk: kotlin.String?,
 
     /* ISO-8601 timestamp of the publish. */
     @Json(name = "published_at")

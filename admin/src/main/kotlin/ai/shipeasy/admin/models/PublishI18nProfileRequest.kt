@@ -28,19 +28,12 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
- * Body for `POST /api/admin/i18n/profiles/{profileId}/publish`. The `chunk` is an audit label only.
+ * Body for `POST /api/admin/i18n/profiles/{profileId}/publish`. Publishing is profile-wide, so the body takes no options.
  *
- * @param chunk Optional chunk label to stamp on the audit log. Publishing is profile-wide regardless — the whole profile is snapshotted into one KV blob.
  */
 
 
-data class PublishI18nProfileRequest (
-
-    /* Optional chunk label to stamp on the audit log. Publishing is profile-wide regardless — the whole profile is snapshotted into one KV blob. */
-    @Json(name = "chunk")
-    val chunk: kotlin.String? = null
-
-) {
+class PublishI18nProfileRequest {
 
 
 }

@@ -141,7 +141,7 @@ open class ProfilesApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     /**
      * GET /api/admin/i18n/profiles
      * List i18n profiles
-     * Returns every locale profile in the project (e.g. &#x60;en:prod&#x60;, &#x60;fr:prod&#x60;).  **Use case:** Discover which locale profiles exist before pushing keys or publishing a chunk.
+     * Returns every locale profile in the project (e.g. &#x60;en:prod&#x60;, &#x60;fr:prod&#x60;).  **Use case:** Discover which locale profiles exist before pushing keys or publishing.
      * @param xProjectId Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it). (optional)
      * @return kotlin.collections.List<ListI18nProfilesResponseInner>
      * @throws IllegalStateException If the request is not correctly configured
@@ -173,7 +173,7 @@ open class ProfilesApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     /**
      * GET /api/admin/i18n/profiles
      * List i18n profiles
-     * Returns every locale profile in the project (e.g. &#x60;en:prod&#x60;, &#x60;fr:prod&#x60;).  **Use case:** Discover which locale profiles exist before pushing keys or publishing a chunk.
+     * Returns every locale profile in the project (e.g. &#x60;en:prod&#x60;, &#x60;fr:prod&#x60;).  **Use case:** Discover which locale profiles exist before pushing keys or publishing.
      * @param xProjectId Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it). (optional)
      * @return ApiResponse<kotlin.collections.List<ListI18nProfilesResponseInner>?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -215,7 +215,7 @@ open class ProfilesApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     /**
      * POST /api/admin/i18n/profiles/{profileId}/publish
      * Publish a profile live
-     * Publish a profile to the CDN — rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the optional &#x60;chunk&#x60; in the body is an audit label only (it does not scope what ships).  **Use case:** Ship the latest translations live after pushing/updating keys.
+     * Publish a profile to the CDN — rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the body takes no options.  **Use case:** Ship the latest translations live after pushing/updating keys.
      * @param profileId The profile id to publish.
      * @param publishI18nProfileRequest 
      * @param xProjectId Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it). (optional)
@@ -249,7 +249,7 @@ open class ProfilesApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     /**
      * POST /api/admin/i18n/profiles/{profileId}/publish
      * Publish a profile live
-     * Publish a profile to the CDN — rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the optional &#x60;chunk&#x60; in the body is an audit label only (it does not scope what ships).  **Use case:** Ship the latest translations live after pushing/updating keys.
+     * Publish a profile to the CDN — rebuild its KV snapshot + purge the edge. Publishing is PROFILE-WIDE: the whole profile is snapshotted into one KV blob, so the body takes no options.  **Use case:** Ship the latest translations live after pushing/updating keys.
      * @param profileId The profile id to publish.
      * @param publishI18nProfileRequest 
      * @param xProjectId Project the request operates on. Optional — defaults to the project the SDK key belongs to; pass it only to scope a multi-project key (the generated client sets it once from its configuration, so per-call callers never thread it). (optional)

@@ -34,7 +34,6 @@ import com.squareup.moshi.JsonClass
  * @param skipped Key names that already existed and were left untouched.
  * @param pushedCount Number of keys inserted (== `added.length`).
  * @param skippedCount Number of keys skipped (== `skipped.length`).
- * @param chunk The chunk the keys were filed under.
  */
 
 
@@ -54,11 +53,7 @@ data class PushI18nKeysResponse (
 
     /* Number of keys skipped (== `skipped.length`). */
     @Json(name = "skipped_count")
-    val skippedCount: java.math.BigDecimal,
-
-    /* The chunk the keys were filed under. */
-    @Json(name = "chunk")
-    val chunk: kotlin.String? = null
+    val skippedCount: java.math.BigDecimal
 
 ) {
 

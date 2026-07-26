@@ -36,7 +36,6 @@ import com.squareup.moshi.JsonClass
  * @param description Optional human note stored with the key.
  * @param variables `{{var}}` placeholder names in the value, or `null` when there are none.
  * @param profileId Owning profile id.
- * @param chunkId Owning chunk (authoring grouping) id.
  * @param updatedAt ISO-8601 timestamp of the last edit.
  * @param updatedBy Actor email that last edited the key.
  */
@@ -67,10 +66,6 @@ data class ListI18nKeysResponseKeysInner (
     /* Owning profile id. */
     @Json(name = "profileId")
     val profileId: kotlin.String? = null,
-
-    /* Owning chunk (authoring grouping) id. */
-    @Json(name = "chunkId")
-    val chunkId: kotlin.String? = null,
 
     /* ISO-8601 timestamp of the last edit. */
     @Json(name = "updatedAt")
