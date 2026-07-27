@@ -19,26 +19,40 @@ try {
 } catch (e: Exception) {
     see(e)
         .causesThe("checkout")
-        .extras(mapOf("order_id" to order.id))
-        .to("use the backup processor")
+        .to("use the backup processor", mapOf("order_id" to order.id))
 }
 ```
 
 The chain:
 
 - `causesThe(subject)` — names the thing affected (the consequence subject).
-- `extras(map)` — structured context (String / finite Number / Boolean only;
-  truncated, capped at 20 keys).
-- `to(outcome)` — **terminal**: builds the wire event and fires the report.
-  If you never call `to()`, **nothing is sent**. Calling `to()` twice is a no-op.
+- `to(outcome, map)` — **terminal**: builds the wire event and fires the report,
+  with the extras folded in (String / finite Number / Boolean only; truncated,
+  capped at 20 keys). If you never call `to()`, **nothing is sent**. Calling
+  `to()` twice is a no-op.
+- `extras(map)` — standalone setter for the same context; reach for it only when
+  you genuinely cannot pass the context inline.
 
-`causesThe()` and `extras()` may be called in any order before `to()`. You can
-also pass the extras inline on the terminal — `to(outcome, map)` is equivalent to
-a final `extras(...)` (it folds over any earlier `extras()`, later wins), so there
-is no ordering to remember:
+### Where extras go in the chain
+
+`causesThe(subject)` and `to(outcome)` are two halves of one sentence and must
+stay adjacent, so fold the extras into the terminal:
 
 ```kotlin
-see(e).causesThe("checkout").to("use the backup processor", mapOf("order_id" to order.id))
+// PREFERRED — the consequence reads as one sentence:
+see(e).causesThe("checkout").to("use cached prices", mapOf("order_id" to order.id))
+```
+
+`to()` returns `Unit`, so extras cannot trail the terminal in Kotlin. And never
+split the sentence with `extras()`:
+
+```kotlin
+// WON'T COMPILE — to() returns Unit:
+// see(e).causesThe("checkout").to("use cached prices").extras(mapOf("order_id" to order.id))
+
+// WRONG — extras wedged between the subject and the outcome. You read
+// "checkout … order_id … use cached prices" and lose the consequence.
+// see(e).causesThe("checkout").extras(mapOf("order_id" to order.id)).to("use cached prices")
 ```
 
 ## Non-exception problems — `seeViolation`
@@ -50,8 +64,7 @@ in the name:
 import ai.shipeasy.seeViolation
 
 seeViolation("negative_inventory")
-    .extras(mapOf("sku" to sku))
-    .to("clamp to zero")
+    .to("clamp to zero", mapOf("sku" to sku))
 ```
 
 ## Expected control flow — `controlFlowException`

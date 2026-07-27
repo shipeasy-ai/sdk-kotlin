@@ -18,7 +18,7 @@ try {
 }
 ```
 
-### Attach context with `.extras(...)`
+### Attach context inline on `.to(outcome, map)`
 
 ```kotlin
 import ai.shipeasy.see
@@ -26,25 +26,23 @@ import ai.shipeasy.see
 try {
     charge(order)
 } catch (e: Exception) {
-    // .extras(map)          structured fields attached to the report (String /
-    //                       finite Number / Boolean only; capped at 20 keys)
-    see(e).causesThe("checkout").extras(mapOf("order_id" to oid)).to("use cached prices")
+    // .to(outcome, map)     PREFERRED: terminal + extras in one call. Structured
+    //                       fields are sanitized (String / finite Number /
+    //                       Boolean only; capped at 20 keys). The consequence
+    //                       sentence stays whole and there is no ordering to
+    //                       remember.
+    see(e).causesThe("checkout").to("use cached prices", mapOf("order_id" to oid))
 }
 ```
 
-Or pass the extras inline on `.to(outcome, map)` — equivalent to a final
-`.extras(...)` (folds over any earlier `.extras`, later wins), so there is no
-ordering to remember:
+`.to` returns `Unit`, so extras cannot trail the terminal in Kotlin — the
+inline form above is how you attach them. And never wedge `.extras(...)`
+between `.causesThe` and `.to`: it splits the consequence sentence in half and
+is hard to read.
 
 ```kotlin
-import ai.shipeasy.see
-
-try {
-    charge(order)
-} catch (e: Exception) {
-    // .to(outcome, map)     terminal + extras in one call
-    see(e).causesThe("checkout").to("use cached prices", mapOf("order_id" to oid))
-}
+// NEVER — the subject and the outcome must stay adjacent:
+// see(e).causesThe("checkout").extras(mapOf("order_id" to oid)).to("use cached prices")
 ```
 
 ### Report a non-exception violation

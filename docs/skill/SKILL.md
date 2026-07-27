@@ -105,13 +105,14 @@ snippet <https://shipeasy-ai.github.io/sdk-kotlin/snippets/metrics/track.md>
 import ai.shipeasy.see
 try { chargeCard(order) }
 catch (e: Exception) {
-    see(e).causesThe("checkout").extras(mapOf("order_id" to order.id)).to("use backup processor")
+    see(e).causesThe("checkout").to("use backup processor", mapOf("order_id" to order.id))
 }
 ```
 
-`to(outcome)` is the terminal — without it nothing is sent. Extras can also ride
-the terminal inline as `to(outcome, map)` (equivalent to a final `.extras(...)`,
-later wins — no ordering to remember). `seeViolation(name)` for non-exceptions;
+`to(outcome, map)` is the terminal — without it nothing is sent; extras ride the
+terminal inline. Never `causesThe(x).extras(map).to(y)`: it splits the
+consequence sentence in half. `to` returns `Unit`, so extras cannot trail it.
+`seeViolation(name)` for non-exceptions;
 `controlFlowException(e).because("...")` to mark expected (reports nothing).
 Reference:
 <https://shipeasy-ai.github.io/sdk-kotlin/pages/error-reporting.md> · snippet
