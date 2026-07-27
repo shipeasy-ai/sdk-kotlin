@@ -17,6 +17,7 @@ import ai.shipeasy.i18nScriptTag
 val head = i18nScriptTag()
 
 // devtoolsScriptTag(projectId = null, clientKey = null, baseUrl = null, defer = true)
-// Hosted overlay — opens with Shift+Alt+S or ?se=1. Render it for staff only.
+// Hosted overlay — opens with Shift+Alt+S or ?se=1, and only for a signed-in
+// Shipeasy session, so gating it on staff/env is optional.
 val devtools = devtoolsScriptTag()
 ```
