@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.21.1 — 2026-07-27
+
+### Docs: where `see()` extras go in the chain
+
+`causesThe(subject)` and `to(outcome)` are two halves of one sentence, so the
+docs no longer teach `causesThe(x).extras(map).to(y)` — wedging the debug
+payload between the subject and the outcome splits the consequence in half and
+is hard to read. That shape is now a documented hard ban.
+
+Kotlin's `to()` returns `Unit`, so extras cannot trail the terminal: pass them
+inline as `to(outcome, map)`. Docs, snippet and the bundled skill updated to
+match; no behaviour change.
+
+Also corrects `VERSION` in `See.kt`, which still read `0.20.0` after the 0.21.0
+release — it is sent as `sdk_version` on every `see()` event.
+
 ## 0.21.0 — 2026-07-26
 
 ### The SSR bootstrap tag loads `/sdk/runtime.js`
