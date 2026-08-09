@@ -60,6 +60,10 @@ embedded skill drifts.
 - Bump **both** `version` in `build.gradle.kts` and `VERSION` in
   `src/main/kotlin/ai/shipeasy/See.kt` (sent on every `see()` event), and add a
   `CHANGELOG.md` entry.
+- Bump the coordinates the docs hand out too — the `implementation`/`<version>`
+  lines in `README.md`, `docs/pages/installation.md` and `docs/skill/SKILL.md`,
+  for both `shipeasy-kotlin` and `shipeasy-kotlin-android`. They were pinned at
+  `0.10.0`/`0.14.0` while Central served `0.21.1`.
 - Publishing is **push-to-`main`** (Maven Central via the vanniktech publish
   plugin; the workflow **gracefully skips** without the signing/credential
   secrets). The build pins Kotlin 1.9.23 + Gradle 8.7 with `jvmToolchain(11)`.

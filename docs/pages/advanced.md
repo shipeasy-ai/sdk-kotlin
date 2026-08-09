@@ -208,4 +208,4 @@ When you pass an **identified** `user`, the tag also carries that identity as a
 The browser SDK adopts it on first paint, so a Kotlin-backend + JS-frontend app
 renders as the identified user immediately — no anonymous-then-identified flip.
 An anonymous request (only `anonymous_id`, or an empty user) emits **no**
-`data-user`. See `experiment-platform/18-identity-bucketing.md`.
+`data-user`. See [Identity & bucketing](https://docs.shipeasy.ai/get-started/identity-and-bucketing).

@@ -20,7 +20,7 @@ native client for shipped Android apps (public client key, server-side eval over
 
 ```kotlin
 // build.gradle.kts — Android companion artifact (thin adapter over the core jar):
-implementation("ai.shipeasy:shipeasy-kotlin-android:0.14.0")
+implementation("ai.shipeasy:shipeasy-kotlin-android:0.21.1")
 ```
 
 ```kotlin
@@ -48,7 +48,7 @@ The rest of this skill covers the **server** SDK (`configure()` + `Client`).
 ## Install
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.10.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.21.1")
 ```
 
 ## Configure once, evaluate per user

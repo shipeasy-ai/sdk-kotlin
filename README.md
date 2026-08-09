@@ -36,7 +36,7 @@ doc page and snippet is also fetchable by URL — start from the manifest at
 ## Install
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.10.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.21.1")
 ```
 
 Per-framework setup (Ktor / Spring) is on the
@@ -103,4 +103,4 @@ the [Testing](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/docs/pages/tes
 ## License
 
 See [LICENSE](https://github.com/shipeasy-ai/sdk-kotlin/blob/main/LICENSE). Evaluation is tested against the cross-language
-MurmurHash3 vectors in `experiment-platform/04-evaluation.md`.
+MurmurHash3 vectors in [Rollouts & bucketing](https://docs.shipeasy.ai/flags/gates/rollouts).
