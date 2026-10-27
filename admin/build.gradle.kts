@@ -34,7 +34,7 @@ mavenPublishing {
     pom {
         name.set("shipeasy-admin-kotlin")
         description.set("Shipeasy Admin API client for Kotlin — generated from the OpenAPI spec (OkHttp + Moshi). Optional companion to ai.shipeasy:shipeasy-kotlin.")
-        url.set("https://shipeasy.dev")
+        url.set("https://shipeasy.ai")
         licenses {
             license {
                 name.set("MIT")

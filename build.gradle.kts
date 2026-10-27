@@ -52,7 +52,7 @@ mavenPublishing {
     pom {
         name.set("shipeasy-kotlin")
         description.set("Shipeasy server SDK for Kotlin — flags, configs, experiments, metrics.")
-        url.set("https://shipeasy.dev")
+        url.set("https://shipeasy.ai")
         licenses {
             license {
                 name.set("MIT")

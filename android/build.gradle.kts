@@ -52,7 +52,7 @@ mavenPublishing {
     pom {
         name.set("shipeasy-kotlin-android")
         description.set("Shipeasy native Android client — SharedPreferences-backed anonymous-id persistence + configureAndroid(). Companion to ai.shipeasy:shipeasy-kotlin.")
-        url.set("https://shipeasy.dev")
+        url.set("https://shipeasy.ai")
         licenses {
             license {
                 name.set("MIT")
