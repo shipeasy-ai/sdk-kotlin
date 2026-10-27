@@ -28,8 +28,7 @@ flags.getFlag("new_checkout", default = true)
 
 ## `getFlagDetail` — value + reason
 
-`getFlagDetail` returns the value plus a `reason` explaining it (LaunchDarkly
-`variationDetail` parity). The reason is computed at the SDK boundary; the
+`getFlagDetail` returns the value plus a `reason` explaining it. The reason is computed at the SDK boundary; the
 canonical evaluation is untouched.
 
 ```kotlin

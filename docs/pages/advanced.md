@@ -3,7 +3,7 @@
 ## Private attributes
 
 Attribute names usable for targeting but never persisted in analytics
-(LD/Statsig `privateAttributes`). Since the server evaluates locally, private
+(`privateAttributes`). Since the server evaluates locally, private
 attrs never leave for evaluation at all; the only egress is `/collect`, and the
 listed keys are stripped from every outbound `track()` payload and `see()`
 `extras`.
