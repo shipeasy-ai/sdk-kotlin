@@ -20,7 +20,7 @@ native client for shipped Android apps (public client key, server-side eval over
 
 ```kotlin
 // build.gradle.kts — Android companion artifact (thin adapter over the core jar):
-implementation("ai.shipeasy:shipeasy-kotlin-android:0.14.0")
+implementation("ai.shipeasy:shipeasy-kotlin-android:0.22.0")
 ```
 
 ```kotlin
@@ -48,7 +48,7 @@ The rest of this skill covers the **server** SDK (`configure()` + `Client`).
 ## Install
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.10.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.22.0")
 ```
 
 ## Configure once, evaluate per user
@@ -114,6 +114,10 @@ terminal inline. Never `causesThe(x).extras(map).to(y)`: it splits the
 consequence sentence in half. `to` returns `Unit`, so extras cannot trail it.
 `seeViolation(name)` for non-exceptions;
 `controlFlowException(e).because("...")` to mark expected (reports nothing).
+`AnonIdFilter` also reads the browser SDK's `X-SE-Correlation` header, so every
+see() in that request carries `correlation_id` and Shipeasy links the browser's
+error to this server exception — no code needed beyond registering the filter
+(non-servlet: `SeeContext.setCorrelationId(header)` / `SeeContext.clear()`).
 Reference:
 <https://shipeasy-ai.github.io/sdk-kotlin/pages/error-reporting.md> · snippet
 <https://shipeasy-ai.github.io/sdk-kotlin/snippets/ops/see.md>

@@ -750,6 +750,7 @@ class Engine(
                 side = "server",
                 sdkVersion = VERSION,
                 env = env,
+                correlationId = SeeContext.correlationId(),
             )
             if (!seeLimiter.shouldSend(ev)) return
             val body = mapOf("events" to listOf(ev))
