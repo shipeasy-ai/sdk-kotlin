@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "ai.shipeasy"
-version = "0.21.1"
+version = "0.22.0"
 
 repositories { mavenCentral() }
 
@@ -23,6 +23,8 @@ dependencies {
     // never load the filter class.
     compileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
     testImplementation(kotlin("test"))
+    // AnonIdFilter tests need the servlet API at test time (compileOnly above).
+    testImplementation("jakarta.servlet:jakarta.servlet-api:6.0.0")
     // For the suite-wide LauncherSessionListener that pins the internal-report
     // ingest key to the inert placeholder before any test runs (see
     // src/test/.../InternalReportInertListener.kt). junit-platform-launcher is

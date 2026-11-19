@@ -55,6 +55,27 @@ split the sentence with `extras()`:
 // see(e).causesThe("checkout").extras(mapOf("order_id" to order.id)).to("use cached prices")
 ```
 
+### Linking a browser error to the server exception behind it
+
+The browser SDK (`@shipeasy/sdk/client`) sends a per-request token on the
+`X-SE-Correlation` header of every same-origin request. `AnonIdFilter` — the
+same servlet filter that mints the bucketing cookie — reads it, and every
+`see()` fired while serving that request carries it as `correlation_id`.
+Shipeasy joins the browser's report and this server report on that token and
+records the server exception as the browser error's cause, so the two are
+triaged as one issue instead of two. Nothing to call once the filter is
+registered:
+
+```kotlin
+@Bean
+fun shipeasyAnonId() = FilterRegistrationBean(AnonIdFilter())
+```
+
+A malformed token is dropped, never sent; the token is cleared when the request
+ends. On a non-servlet stack, set it from your own per-request hook with
+`SeeContext.setCorrelationId(header)` and call `SeeContext.clear()` when the
+request finishes.
+
 ## Non-exception problems — `seeViolation`
 
 The name is a **stable fingerprint key** — put variable data in `extras()`, never

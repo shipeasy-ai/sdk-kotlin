@@ -26,6 +26,12 @@ import jakarta.servlet.http.HttpServletResponse
  * `jakarta.servlet-api` is a `compileOnly` dependency — your servlet container
  * already supplies it at runtime, so this adds nothing to your deployment.
  * Non-servlet stacks can use [AnonId] directly instead.
+ *
+ * It also reads the browser SDK's `X-SE-Correlation` request header into the
+ * request-local [SeeContext], so every `see()` fired while serving the request
+ * carries that `correlation_id` — the token the platform joins on to link the
+ * browser's error to the server exception behind it. A malformed token is
+ * dropped, never sent.
  */
 class AnonIdFilter : Filter {
     override fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
@@ -42,10 +48,12 @@ class AnonIdFilter : Filter {
             res.addHeader("Set-Cookie", AnonId.buildSetCookie(id, isSecure(req)))
         }
         AnonId.setCurrent(id)
+        SeeContext.setCorrelationId(req.getHeader(SeeContext.CORRELATION_HEADER))
         try {
             chain.doFilter(request, response)
         } finally {
             AnonId.clear()
+            SeeContext.clear()
         }
     }
 

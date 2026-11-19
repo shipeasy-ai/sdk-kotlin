@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 
 /** The single runtime source of `sdk_version` on every see() wire event. */
-const val VERSION: String = "0.21.1"
+const val VERSION: String = "0.22.0"
 
 // ---- Limits (mirror core.ts; kept in sync with the worker's /collect) ----
 internal const val SEE_MAX_MESSAGE = 500
@@ -101,6 +101,46 @@ internal fun markExpected(err: Throwable, because: String, extras: Map<String, A
 /** True if [err] was marked expected via [controlFlowException]`.because(...)`. */
 fun isExpected(err: Throwable): Boolean = expectedMarks[err] != null
 
+// ---- Request-local see() context ----
+
+/**
+ * Request-local context attached to every see() fired while serving a request.
+ *
+ * The browser SDK mints one token per same-origin request and sends it on the
+ * `X-SE-Correlation` request header. [AnonIdFilter] parks it here for the
+ * duration of the request (and clears it in `finally`, next to the anon id), so
+ * every `see()` on that thread carries it as `correlation_id` — the token the
+ * platform joins on to link the browser's error to the server exception behind
+ * it. Non-servlet stacks can call [setCorrelationId] / [clear] from their own
+ * per-request hook. Thread-local, like [AnonId.current].
+ */
+object SeeContext {
+    /** The request header the browser SDK sends the token on. */
+    const val CORRELATION_HEADER = "X-SE-Correlation"
+
+    // Same shape the collector accepts; anything else is dropped, never sent.
+    private val CORRELATION_RE = Regex("^[A-Za-z0-9-]{8,64}$")
+
+    private val correlation = ThreadLocal<String?>()
+
+    /** Set the current request's correlation token. Invalid / blank values clear it. Never throws. */
+    fun setCorrelationId(value: String?) {
+        val clean = cleanCorrelation(value)
+        if (clean == null) correlation.remove() else correlation.set(clean)
+    }
+
+    /** The validated correlation token for the current request, or null. */
+    fun correlationId(): String? = correlation.get()
+
+    /** Drop all request-local see() context. Call at request end. */
+    fun clear() = correlation.remove()
+
+    internal fun cleanCorrelation(value: String?): String? {
+        val s = value?.trim() ?: return null
+        return if (CORRELATION_RE.matches(s)) s else null
+    }
+}
+
 // ---- Wire event construction ----
 
 /**
@@ -115,6 +155,7 @@ internal fun buildSeeEvent(
     side: String,
     sdkVersion: String,
     env: String?,
+    correlationId: String? = null,
 ): Map<String, Any?> {
     val errorType: String
     val message: String
@@ -150,6 +191,7 @@ internal fun buildSeeEvent(
     sanitizeExtras(extras)?.let { ev["extras"] = it }
     ev["side"] = side
     if (!env.isNullOrEmpty()) ev["env"] = env
+    SeeContext.cleanCorrelation(correlationId)?.let { ev["correlation_id"] = it }
     ev["sdk_version"] = sdkVersion
     ev["ts"] = System.currentTimeMillis()
     return ev
