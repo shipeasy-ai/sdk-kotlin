@@ -36,7 +36,7 @@ doc page and snippet is also fetchable by URL — start from the manifest at
 ## Install
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.23.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.24.0")
 ```
 
 Per-framework setup (Ktor / Spring) is on the

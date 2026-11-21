@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.24.0 — 2026-11-21
+
+### Overrides reach APIs on sibling subdomains (shipeasy ops #714)
+
+When the frontend (`app.example.com`) and API (`api.example.com`) differ, the
+override cookies are host-only to the frontend. The browser SDK now scopes them
+to the registrable domain, and also offers an `X-Shipeasy-Overrides` header
+(cookie-header syntax) for token-auth APIs. `AnonIdFilter` reads it, and
+`withRequestOverrides` / `withRequestOverridesSuspend` take an optional second
+`overridesHeader` argument (backward compatible). The `Cookie` header wins per
+cookie name; the same verification and `devOverrides` non-production guards apply.
+
 ## 0.23.0 — 2026-11-21
 
 ### Server reads honor the signed DevTools override cookie (shipeasy ops #714)

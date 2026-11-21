@@ -56,7 +56,7 @@ class AnonIdFilter : Filter {
         AnonId.setCurrent(id)
         SeeContext.setCorrelationId(req.getHeader(SeeContext.CORRELATION_HEADER))
         // Signed DevTools overrides: verify the `se_ov` cookie once for this request.
-        val prevOverrides = RequestOverrides.enter(RequestOverrides.verified(cookieHeader(req)))
+        val prevOverrides = RequestOverrides.enter(RequestOverrides.verified(cookieHeader(req), req.getHeader(OverrideCookie.HEADER)))
         try {
             chain.doFilter(request, response)
         } finally {

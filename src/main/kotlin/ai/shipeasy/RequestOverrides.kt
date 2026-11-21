@@ -36,6 +36,8 @@ internal class OverrideMap(
 internal object OverrideCookie {
     const val NAME = "se_ov"
     const val DEV_NAME = "se_ov_dev"
+    /** Request header carrying the same cookies (cookie-header syntax) for cross-subdomain APIs. */
+    const val HEADER = "X-Shipeasy-Overrides"
     const val FORMAT_VERSION = 1L
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -153,8 +155,9 @@ internal object OverrideCookie {
      */
     fun extract(input: String?, name: String = NAME): String? {
         if (input.isNullOrEmpty()) return null
-        if (!input.contains(';') && !input.contains("$name=")) {
-            // A signed value is `body.sig`; the unsigned dev value is bare base64url.
+        // Bare value only when it has neither `=` nor `;` (base64url has no `=`);
+        // anything else is a Cookie header — so `theme=a.b` is NOT a bare se_ov.
+        if (!input.contains(';') && !input.contains('=')) {
             return if (name != NAME || input.contains('.')) input else null
         }
         for (part in input.split(';')) {
@@ -200,12 +203,18 @@ internal object RequestOverrides {
     fun current(): OverrideMap? = current.get()
 
     /** Verify [cookieHeader] against the configured engine; null when nothing valid. */
-    fun verified(cookieHeader: String?): OverrideMap? = runCatching {
+    // [overridesHeader] is the `X-Shipeasy-Overrides` value (cookie-header syntax)
+    // for APIs on a sibling subdomain that never see the browser's cookies. Per
+    // cookie name the `Cookie` header wins; the custom header fills in when absent.
+    fun verified(cookieHeader: String?, overridesHeader: String? = null): OverrideMap? = runCatching {
         val engine = currentEngine() ?: return@runCatching null
-        val signed = OverrideCookie.extract(cookieHeader)?.let { engine.verifyOverrideCookie(it) }
+        val signed = (OverrideCookie.extract(cookieHeader) ?: OverrideCookie.extract(overridesHeader))
+            ?.let { engine.verifyOverrideCookie(it) }
         // Unsigned dev cookie: not even looked at unless opted in AND non-production.
         val dev = if (engine.devOverridesActive) {
-            OverrideCookie.extract(cookieHeader, OverrideCookie.DEV_NAME)?.let { OverrideCookie.decodeDev(it) }
+            (OverrideCookie.extract(cookieHeader, OverrideCookie.DEV_NAME)
+                ?: OverrideCookie.extract(overridesHeader, OverrideCookie.DEV_NAME))
+                ?.let { OverrideCookie.decodeDev(it) }
         } else null
         OverrideCookie.merge(signed, dev)
     }.getOrNull()
@@ -230,7 +239,9 @@ internal object RequestOverrides {
  * [block]. Pass the request's raw `Cookie` header (or just the `se_ov` value).
  * The cookie is verified ONCE here, against the project key Shipeasy served with
  * the flags; a missing/invalid/expired cookie (or no key served) means no
- * overrides, never an error. Precedence: `overrideFlag(...)` > signed cookie >
+ * overrides, never an error. Pass the request's `X-Shipeasy-Overrides` header
+ * as [overridesHeader] for APIs on a sibling subdomain (the `Cookie` header wins
+ * per cookie name). Precedence: `overrideFlag(...)` > signed cookie >
  * normal evaluation. The scope is cleared when [block] returns or throws.
  *
  * Use this when you are not on a servlet stack (where [AnonIdFilter] already does
@@ -243,8 +254,8 @@ internal object RequestOverrides {
  * }
  * ```
  */
-fun <T> withRequestOverrides(cookieHeader: String?, block: () -> T): T {
-    val prev = RequestOverrides.enter(RequestOverrides.verified(cookieHeader))
+fun <T> withRequestOverrides(cookieHeader: String?, overridesHeader: String? = null, block: () -> T): T {
+    val prev = RequestOverrides.enter(RequestOverrides.verified(cookieHeader, overridesHeader))
     try {
         return block()
     } finally {
@@ -257,5 +268,8 @@ fun <T> withRequestOverrides(cookieHeader: String?, block: () -> T): T {
  * coroutine (`ThreadLocal.asContextElement`), so reads stay overridden after
  * `withContext(Dispatchers.IO)` or any other dispatch inside [block].
  */
-suspend fun <T> withRequestOverridesSuspend(cookieHeader: String?, block: suspend () -> T): T =
-    withContext(RequestOverrides.element(RequestOverrides.verified(cookieHeader))) { block() }
+suspend fun <T> withRequestOverridesSuspend(
+    cookieHeader: String?,
+    overridesHeader: String? = null,
+    block: suspend () -> T,
+): T = withContext(RequestOverrides.element(RequestOverrides.verified(cookieHeader, overridesHeader))) { block() }
