@@ -54,3 +54,11 @@ d.reason   // one of the Reason constants
 
 `getFlag` is strictly boolean. For typed values use [configs](configs.md); for
 variant assignment use [experiments](experiments.md).
+
+## DevTools overrides on the server
+
+Signed-in DevTools overrides (the `se_ov` cookie) reach `getFlag` /
+`getFlagDetail` once `AnonIdFilter` is installed or the request is wrapped in
+`withRequestOverrides(cookieHeader) { ... }` — the detail reason is `OVERRIDE`.
+Programmatic `overrideFlag` still wins; no valid signature, no override. See
+[Advanced](advanced.md#server-side-devtools-overrides-se_ov).

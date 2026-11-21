@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.23.0 — 2026-11-21
+
+### Server reads honor the signed DevTools override cookie (shipeasy ops #714)
+
+A signed-in DevTools overlay mirrors every override (including the
+`?se_gate_x=true` URL state) into a signed `se_ov` cookie, but the server never
+looked at it, so server-rendered gates ignored them. `Client(user)` reads now
+apply the overrides: `getFlag`/`getFlagDetail` (reason `OVERRIDE`),
+`getKillswitch` (whole-switch reads), `getConfig`, and `universe(name).assign()`
+(forces the group). Precedence: programmatic `overrideFlag`/`overrideConfig`/
+`overrideExperiment` > signed cookie > normal evaluation.
+
+- `AnonIdFilter` verifies the cookie once per request and scopes the overrides
+  to it (cleared in the `finally`).
+- New `withRequestOverrides(cookieHeader) { ... }` for non-servlet stacks, with a
+  `withRequestOverridesSuspend` (suspend) that carries the scope across dispatcher switches
+  (`ThreadLocal.asContextElement`).
+- Fail closed: needs the `overrideKey`/`overrideKeyId` Shipeasy serves with the
+  flags, a valid HMAC signature and an unexpired cookie; anything else is a
+  no-op. Unsigned `?se_gate_` URL params remain client-only.
+- Opt-in `configure(devOverrides = true)` additionally honors the UNSIGNED
+  dev-only `se_ov_dev` cookie (the browser's `?se_gate_` URL state), only in a
+  non-production process; ignored with one warning in production. The signed
+  cookie wins per name.
+- Verifier vendored from the monorepo's `packages/core/src/overrides/cookie.ts`
+  (stdlib only, no new dependencies) and checked against the shared fixture.
+
 ## 0.22.0 — 2026-11-19
 
 ### see() reports carry the browser's request correlation token

@@ -201,6 +201,57 @@ end users at all:
 val head = if (user.isStaff) devtoolsScriptTag() else ""
 ```
 
+### Server-side DevTools overrides (`se_ov`)
+
+When a developer is signed in to the DevTools overlay, every override they set
+(including `?se_gate_x=true` in the URL) is mirrored into a signed `se_ov`
+cookie that rides along on every same-origin request. Once the request is scoped,
+**server-side reads honor it** — `getFlag` / `getFlagDetail` (reason
+`OVERRIDE`), `getKillswitch` (whole-switch reads; the gate namespace covers kill
+switches), `getConfig`, and `universe(name).assign()` (forces the group).
+
+- **Servlet stacks:** register `AnonIdFilter` (above) — it verifies the cookie
+  once per request and clears it afterwards. Nothing else to wire.
+- **Everything else:** wrap the request in `withRequestOverrides(cookieHeader) { ... }`.
+  A `suspend` variant, `withRequestOverridesSuspend`, keeps the scope with the coroutine
+  across `withContext(Dispatchers.IO)` hops.
+
+```kotlin
+import ai.shipeasy.withRequestOverrides
+
+withRequestOverrides(call.request.headers["Cookie"]) {
+    val flags = Client(currentUser)
+    flags.getFlag("new_checkout")   // overridden value if DevTools set one
+}
+```
+
+Precedence is `overrideFlag(...)` (programmatic) > signed cookie > normal
+evaluation. It is **fail-closed**: overrides apply only when Shipeasy served your
+project's override key with the flags, the cookie signature verifies, and it has
+not expired. Otherwise — or outside a scoped request — reads are unchanged. A
+bare unsigned `?se_gate_` URL parameter is client-only by design: without the
+signed cookie the server never trusts it.
+
+### Dev-only URL overrides (`se_ov_dev`)
+
+For a local/dev/test stack where nobody signs in to DevTools, the browser SDK
+mirrors `?se_gate_x=true` style URL overrides into an **unsigned** `se_ov_dev`
+cookie (non-production browser builds only). The server reads it only when
+**both** guards hold:
+
+1. you opted in: `configure(apiKey = ..., devOverrides = true)` (also accepted by
+   `configureForTesting` / `configureForOffline`); default `false`; and
+2. the process is non-production — the same detection that drives the network /
+   telemetry defaults (`shipeasy.env` / `SHIPEASY_ENV` / `APP_ENV` / `ENV`, else
+   the `env` option, which defaults to `prod`). An unset environment counts as
+   production. `configureForTesting` / `configureForOffline` count as non-prod.
+
+With the option on in a production process the cookie is ignored and one warning
+is logged. When not honored the scope never even looks for the cookie. Precedence
+is programmatic > signed `se_ov` > `se_ov_dev` > evaluation, per name (the signed
+cookie wins on conflicts); the reason stays `OVERRIDE`. It is never active in
+production.
+
 ### Identity coherence (no anon→identified flip)
 
 When you pass an **identified** `user`, the tag also carries that identity as a

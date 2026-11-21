@@ -41,6 +41,9 @@
     },
     "ops": {
       "see": "snippets/ops/see.md"
+    },
+    "devtools": {
+      "server-overrides": "snippets/devtools/server-overrides.md"
     }
   }
 }

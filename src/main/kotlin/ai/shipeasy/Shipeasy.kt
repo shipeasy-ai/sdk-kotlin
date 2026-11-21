@@ -96,6 +96,10 @@ fun configure(
     profile: String? = null,
     projectId: String? = null,
     cdnBaseUrl: String? = null,
+    // Opt-in (default false): honor the UNSIGNED dev-only `se_ov_dev` cookie
+    // (the `?se_gate_x=true` URL overrides) on server reads. Ignored — with one
+    // warning — when the process looks like production.
+    devOverrides: Boolean = false,
 ): Engine {
     synchronized(configureLock) {
         globalEngine?.let { return it }
@@ -116,6 +120,7 @@ fun configure(
             profile = profile,
             projectId = projectId,
             cdnBaseUrl = cdnBaseUrl,
+            devOverrides = devOverrides,
         )
         globalEngine = engine
         // Fetch lifecycle owned by configure (the docs never tell a user to call
@@ -320,8 +325,11 @@ fun configureForTesting(
     profile: String? = null,
     projectId: String? = null,
     cdnBaseUrl: String? = null,
+    // Opt in to the unsigned `se_ov_dev` cookie (always non-production here).
+    devOverrides: Boolean = false,
 ): Engine {
     val engine = Engine.forTesting(clientKey, profile, projectId, cdnBaseUrl)
+    engine.devOverrides = devOverrides
     applyOverrides(engine, flags, configs, experiments)
     installReplace(engine, attributes)
     return engine
@@ -341,6 +349,8 @@ fun configureForOffline(
     flags: Map<String, Boolean> = emptyMap(),
     configs: Map<String, Any?> = emptyMap(),
     experiments: Map<String, Pair<String, Any?>> = emptyMap(),
+    // Opt in to the unsigned `se_ov_dev` cookie (offline is non-production).
+    devOverrides: Boolean = false,
 ): Engine {
     @Suppress("UNCHECKED_CAST")
     val engine = when {
@@ -352,6 +362,7 @@ fun configureForOffline(
         else -> throw IllegalArgumentException(
             "configureForOffline requires either a snapshot or a path source")
     }
+    engine.devOverrides = devOverrides
     applyOverrides(engine, flags, configs, experiments)
     installReplace(engine, attributes)
     return engine

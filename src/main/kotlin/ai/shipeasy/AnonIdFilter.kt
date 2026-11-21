@@ -32,6 +32,12 @@ import jakarta.servlet.http.HttpServletResponse
  * carries that `correlation_id` — the token the platform joins on to link the
  * browser's error to the server exception behind it. A malformed token is
  * dropped, never sent.
+ *
+ * It also honors the signed DevTools override cookie (`se_ov`): the cookie is
+ * verified once per request and, while the request runs, every `Client(user)`
+ * read applies the overrides (programmatic `overrideFlag` still wins). Fail
+ * closed — no key served by Shipeasy, a bad signature or an expired cookie mean
+ * no overrides. Non-servlet stacks use [withRequestOverrides].
  */
 class AnonIdFilter : Filter {
     override fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
@@ -49,12 +55,20 @@ class AnonIdFilter : Filter {
         }
         AnonId.setCurrent(id)
         SeeContext.setCorrelationId(req.getHeader(SeeContext.CORRELATION_HEADER))
+        // Signed DevTools overrides: verify the `se_ov` cookie once for this request.
+        val prevOverrides = RequestOverrides.enter(RequestOverrides.verified(cookieHeader(req)))
         try {
             chain.doFilter(request, response)
         } finally {
+            RequestOverrides.restore(prevOverrides)
             AnonId.clear()
             SeeContext.clear()
         }
+    }
+
+    private fun cookieHeader(req: HttpServletRequest): String? {
+        val all = runCatching { req.getHeaders("Cookie")?.toList() }.getOrNull()
+        return if (!all.isNullOrEmpty()) all.joinToString("; ") else req.getHeader("Cookie")
     }
 
     private fun isSecure(req: HttpServletRequest): Boolean {

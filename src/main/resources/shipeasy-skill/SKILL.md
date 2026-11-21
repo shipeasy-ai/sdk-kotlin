@@ -20,7 +20,7 @@ native client for shipped Android apps (public client key, server-side eval over
 
 ```kotlin
 // build.gradle.kts — Android companion artifact (thin adapter over the core jar):
-implementation("ai.shipeasy:shipeasy-kotlin-android:0.22.0")
+implementation("ai.shipeasy:shipeasy-kotlin-android:0.23.0")
 ```
 
 ```kotlin
@@ -48,7 +48,7 @@ The rest of this skill covers the **server** SDK (`configure()` + `Client`).
 ## Install
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.22.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.23.0")
 ```
 
 ## Configure once, evaluate per user
@@ -149,6 +149,20 @@ configureForOffline(path = "shipeasy-snapshot.json")
 ```
 
 Reference: <https://shipeasy-ai.github.io/sdk-kotlin/pages/testing.md>
+
+## DevTools overrides on server reads
+
+Signed-in DevTools overrides (the `se_ov` cookie, incl. `?se_gate_x=true`) apply
+to server `Client(user)` reads (`getFlag`/`getFlagDetail` reason `OVERRIDE`,
+`getKillswitch`, `getConfig`, `universe().assign()`) once the request is scoped:
+servlet stacks register `AnonIdFilter`; others wrap the request in
+`withRequestOverrides(cookieHeader) { ... }` (`withRequestOverridesSuspend` follows the
+coroutine). Fail-closed: needs the project override key served by Shipeasy, a
+valid unexpired signature; `overrideFlag` still wins; an unsigned `?se_gate_`
+param alone is client-only. For dev stacks only, `configure(devOverrides = true)`
+also honors the unsigned `se_ov_dev` URL-override cookie — ignored (one warning) in
+production, signed cookie wins on conflicts. Reference:
+<https://shipeasy-ai.github.io/sdk-kotlin/snippets/devtools/server-overrides.md>
 
 ## Notes
 
