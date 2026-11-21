@@ -35,6 +35,7 @@ internal class OverrideMap(
 
 internal object OverrideCookie {
     const val NAME = "se_ov"
+    const val DEV_NAME = "se_ov_dev"
     const val FORMAT_VERSION = 1L
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -96,6 +97,10 @@ internal object OverrideCookie {
         val expected = hmac(sessionKey, body)
         if (!MessageDigest.isEqual(expected, b64uDecode(sig))) return null // constant-time
 
+        return parseSets(ov)
+    }
+
+    private fun parseSets(ov: JsonObject): OverrideMap {
         val gates = (ov["gates"] as? JsonObject).orEmpty()
             .mapNotNull { (k, e) -> (e as? JsonPrimitive)?.takeIf { !it.isString && it.content in setOf("true", "false") }?.let { k to (it.content == "true") } }
             .toMap()
@@ -104,6 +109,25 @@ internal object OverrideCookie {
             .mapNotNull { (k, e) -> str(e)?.let { k to it } }
             .toMap()
         return OverrideMap(gates, configs, exps)
+    }
+
+    /**
+     * Decode the UNSIGNED dev cookie value `se_ov_dev`: base64url (no padding) of
+     * UTF-8 JSON `{"gates":{},"configs":{},"exps":{}}`. No signature, no expiry.
+     * Malformed → null; never throws. Callers gate it on opt-in + non-production.
+     */
+    fun decodeDev(value: String): OverrideMap? = try {
+        val o = json.parseToJsonElement(String(b64uDecode(value), Charsets.UTF_8)) as? JsonObject
+        o?.let { parseSets(it) }
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Per-name merge: [signed] wins over [dev] on conflicts. */
+    fun merge(signed: OverrideMap?, dev: OverrideMap?): OverrideMap? = when {
+        dev == null -> signed
+        signed == null -> dev
+        else -> OverrideMap(dev.gates + signed.gates, dev.configs + signed.configs, dev.exps + signed.exps)
     }
 
     private fun JsonObject?.orEmpty(): JsonObject = this ?: JsonObject(emptyMap())
@@ -127,15 +151,16 @@ internal object OverrideCookie {
      * `Cookie:` header (`a=1; se_ov=...; b=2`), percent-decoding the value. Null
      * when absent.
      */
-    fun extract(input: String?): String? {
+    fun extract(input: String?, name: String = NAME): String? {
         if (input.isNullOrEmpty()) return null
-        if (!input.contains(';') && !input.contains("$NAME=")) {
-            return if (input.contains('.')) input else null
+        if (!input.contains(';') && !input.contains("$name=")) {
+            // A signed value is `body.sig`; the unsigned dev value is bare base64url.
+            return if (name != NAME || input.contains('.')) input else null
         }
         for (part in input.split(';')) {
             val eq = part.indexOf('=')
             if (eq < 0) continue
-            if (part.substring(0, eq).trim() == NAME) {
+            if (part.substring(0, eq).trim() == name) {
                 return percentDecode(part.substring(eq + 1).trim())
             }
         }
@@ -176,8 +201,13 @@ internal object RequestOverrides {
 
     /** Verify [cookieHeader] against the configured engine; null when nothing valid. */
     fun verified(cookieHeader: String?): OverrideMap? = runCatching {
-        val raw = OverrideCookie.extract(cookieHeader) ?: return@runCatching null
-        currentEngine()?.verifyOverrideCookie(raw)
+        val engine = currentEngine() ?: return@runCatching null
+        val signed = OverrideCookie.extract(cookieHeader)?.let { engine.verifyOverrideCookie(it) }
+        // Unsigned dev cookie: not even looked at unless opted in AND non-production.
+        val dev = if (engine.devOverridesActive) {
+            OverrideCookie.extract(cookieHeader, OverrideCookie.DEV_NAME)?.let { OverrideCookie.decodeDev(it) }
+        } else null
+        OverrideCookie.merge(signed, dev)
     }.getOrNull()
 
     /** Set the map for this thread; returns the previous one for [restore]. */

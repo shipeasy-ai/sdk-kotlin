@@ -20,6 +20,10 @@ apply the overrides: `getFlag`/`getFlagDetail` (reason `OVERRIDE`),
 - Fail closed: needs the `overrideKey`/`overrideKeyId` Shipeasy serves with the
   flags, a valid HMAC signature and an unexpired cookie; anything else is a
   no-op. Unsigned `?se_gate_` URL params remain client-only.
+- Opt-in `configure(devOverrides = true)` additionally honors the UNSIGNED
+  dev-only `se_ov_dev` cookie (the browser's `?se_gate_` URL state), only in a
+  non-production process; ignored with one warning in production. The signed
+  cookie wins per name.
 - Verifier vendored from the monorepo's `packages/core/src/overrides/cookie.ts`
   (stdlib only, no new dependencies) and checked against the shared fixture.
 

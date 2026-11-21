@@ -26,3 +26,10 @@ withRequestOverrides(call.request.headers["Cookie"]) {
     flags.getFlag("{{FLAG_KEY}}")
 }
 ```
+
+### Dev stacks: unsigned URL overrides
+
+```kotlin
+// Non-production only. Ignored (with one warning) when the process is production.
+configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"), devOverrides = true)
+```

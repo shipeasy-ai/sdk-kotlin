@@ -159,7 +159,9 @@ servlet stacks register `AnonIdFilter`; others wrap the request in
 `withRequestOverrides(cookieHeader) { ... }` (`withRequestOverridesSuspend` follows the
 coroutine). Fail-closed: needs the project override key served by Shipeasy, a
 valid unexpired signature; `overrideFlag` still wins; an unsigned `?se_gate_`
-param alone is client-only. Reference:
+param alone is client-only. For dev stacks only, `configure(devOverrides = true)`
+also honors the unsigned `se_ov_dev` URL-override cookie — ignored (one warning) in
+production, signed cookie wins on conflicts. Reference:
 <https://shipeasy-ai.github.io/sdk-kotlin/snippets/devtools/server-overrides.md>
 
 ## Notes

@@ -107,6 +107,10 @@ class Engine(
     private val profile: String? = null,
     private val projectId: String? = null,
     private val cdnBaseUrl: String? = null,
+    // Opt-in: honor the UNSIGNED `se_ov_dev` URL-override cookie on server reads.
+    // Active only when this is true AND the process is non-production (see
+    // [devOverridesActive]); never in production. Default off.
+    devOverrides: Boolean = false,
 ) : AutoCloseable {
     // Missing-setting warnings already logged, keyed "helper.setting": a tag
     // helper runs on every render and one misconfiguration must not log a line
@@ -196,7 +200,24 @@ class Engine(
     // (un)subscription.
     private val changeListeners = CopyOnWriteArrayList<() -> Unit>()
 
+    // Whether `se_ov_dev` is honored: opted in AND non-production (test/offline
+    // engines count as non-production). Mutable only so configureFor* can opt in.
+    @Volatile internal var devOverrides: Boolean = devOverrides
+        set(value) { field = value; warnIfDevOverridesInProduction() }
+
+    internal val devOverridesActive: Boolean
+        get() = devOverrides && (localMode || !Env.isProductionEnv(env))
+
+    private val devWarned = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun warnIfDevOverridesInProduction() {
+        if (devOverrides && !devOverridesActive && devWarned.compareAndSet(false, true)) {
+            Log.warn("devOverrides is enabled but this process looks like production; the se_ov_dev cookie is ignored")
+        }
+    }
+
     init {
+        warnIfDevOverridesInProduction()
         // Apply the configured verbosity to the shared leveled logger before any
         // diagnostic can fire (last constructed wins, same as the default engine).
         Log.setLevel(logLevel)

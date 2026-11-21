@@ -225,4 +225,78 @@ class RequestOverridesTest {
         AnonIdFilter().doFilter(request(null), response(), FilterChain { _, _ -> inside = Client(user).getFlag("lobby_hold") })
         assertEquals(false, inside)
     }
+
+    // ── unsigned dev cookie (se_ov_dev) ──────────────────────────────────────
+    private val dev = "eyJnYXRlcyI6eyJsb2JieV9ob2xkIjp0cnVlLCJvbGRfbmF2IjpmYWxzZX0sImNvbmZpZ3MiOnsiYmFubmVyIjp7InRleHQiOiJoaSJ9fSwiZXhwcyI6eyJjaGVja291dF9leHAiOiJ0cmVhdG1lbnQifX0"
+
+    private fun installDev(devOverrides: Boolean, env: String = "dev", key: Boolean = false): Engine {
+        val e = Engine(apiKey = "", env = env, isNetworkEnabled = false, disableTelemetry = true, devOverrides = devOverrides)
+        e.applyDataForTest(flagsBlob(key), exps)
+        installEngineForTests(e)
+        return e
+    }
+
+    @Test fun devVectorDecodes() {
+        val ov = OverrideCookie.decodeDev(dev)
+        assertNotNull(ov)
+        assertEquals(mapOf("lobby_hold" to true, "old_nav" to false), ov.gates)
+        assertEquals(mapOf("banner" to mapOf("text" to "hi")), ov.configs)
+        assertEquals(mapOf("checkout_exp" to "treatment"), ov.exps)
+        assertNull(OverrideCookie.decodeDev("not-json!!"))
+        assertEquals(dev, OverrideCookie.extract("a=1; se_ov_dev=$dev; b=2", OverrideCookie.DEV_NAME))
+        assertEquals(dev, OverrideCookie.extract("se_ov_dev=" + dev.replace("e", "%65"), OverrideCookie.DEV_NAME))
+    }
+
+    @Test fun devCookieIgnoredWhenOptionOff() {
+        installDev(devOverrides = false)
+        withRequestOverrides("se_ov_dev=$dev") {
+            assertFalse(Client(user).getFlag("lobby_hold"))
+            assertNull(RequestOverrides.current())
+        }
+    }
+
+    @Test fun devCookieIgnoredInProduction() {
+        val e = installDev(devOverrides = true, env = "prod")
+        // env may be overridden by a native signal; only assert when it resolves to prod.
+        if (Env.isProductionEnv("prod")) {
+            assertFalse(e.devOverridesActive)
+            withRequestOverrides("se_ov_dev=$dev") { assertFalse(Client(user).getFlag("lobby_hold")) }
+        }
+    }
+
+    @Test fun devCookieHonoredInNonProdWithOption() {
+        installDev(devOverrides = true)
+        if (!Env.isProductionEnv("dev")) {
+            withRequestOverrides("se_ov_dev=$dev") {
+                val d = Client(user).getFlagDetail("lobby_hold")
+                assertTrue(d.value)
+                assertEquals(Reason.OVERRIDE, d.reason)
+                assertEquals(mapOf("text" to "hi"), Client(user).getConfig("banner"))
+                assertEquals("treatment", Client(user).universe("u1").assign().group)
+            }
+            assertFalse(Client(user).getFlag("lobby_hold"))
+        }
+    }
+
+    @Test fun devCookieHonoredUnderConfigureForTesting() {
+        configureForTesting(devOverrides = true)
+        withRequestOverrides("se_ov_dev=$dev") { assertTrue(Client(user).getFlag("lobby_hold")) }
+        configureForTesting()
+        withRequestOverrides("se_ov_dev=$dev") { assertFalse(Client(user).getFlag("lobby_hold")) }
+    }
+
+    @Test fun signedCookieBeatsDevCookieOnSameName() {
+        // Offline snapshot with a served key; dev says lobby_hold=true & old_nav=true,
+        // signed says old_nav=false -> signed wins on old_nav, dev fills lobby_hold? (signed also sets it true)
+        val e = Engine.fromSnapshot(flagsBlob(true), exps)
+        e.devOverrides = true
+        installEngineForTests(e)
+        val devOnlyOldNavTrue = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("""{"gates":{"old_nav":true,"only_dev":true}}""".toByteArray())
+        withRequestOverrides("se_ov=$cookie; se_ov_dev=$devOnlyOldNavTrue") {
+            assertFalse(Client(user).getFlag("old_nav"))            // signed wins
+            assertTrue(Client(user).getFlagDetail("only_dev").value) // dev fills the rest
+            assertTrue(Client(user).getFlag("lobby_hold"))           // signed
+        }
+    }
 }

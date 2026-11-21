@@ -232,6 +232,26 @@ not expired. Otherwise — or outside a scoped request — reads are unchanged. 
 bare unsigned `?se_gate_` URL parameter is client-only by design: without the
 signed cookie the server never trusts it.
 
+### Dev-only URL overrides (`se_ov_dev`)
+
+For a local/dev/test stack where nobody signs in to DevTools, the browser SDK
+mirrors `?se_gate_x=true` style URL overrides into an **unsigned** `se_ov_dev`
+cookie (non-production browser builds only). The server reads it only when
+**both** guards hold:
+
+1. you opted in: `configure(apiKey = ..., devOverrides = true)` (also accepted by
+   `configureForTesting` / `configureForOffline`); default `false`; and
+2. the process is non-production — the same detection that drives the network /
+   telemetry defaults (`shipeasy.env` / `SHIPEASY_ENV` / `APP_ENV` / `ENV`, else
+   the `env` option, which defaults to `prod`). An unset environment counts as
+   production. `configureForTesting` / `configureForOffline` count as non-prod.
+
+With the option on in a production process the cookie is ignored and one warning
+is logged. When not honored the scope never even looks for the cookie. Precedence
+is programmatic > signed `se_ov` > `se_ov_dev` > evaluation, per name (the signed
+cookie wins on conflicts); the reason stays `OVERRIDE`. It is never active in
+production.
+
 ### Identity coherence (no anon→identified flip)
 
 When you pass an **identified** `user`, the tag also carries that identity as a
