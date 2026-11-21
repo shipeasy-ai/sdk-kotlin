@@ -274,6 +274,9 @@ class Engine(
     fun getFlagDetail(name: String, user: Map<String, Any?>): FlagDetail = runCatching {
         // 1. Local override wins and skips telemetry (mirrors the override path).
         flagOverrides[name]?.let { return@runCatching FlagDetail(it, Reason.OVERRIDE) }
+        // 1b. Signed DevTools cookie override for this request (same reason, same
+        //     telemetry skip as the programmatic path; lower precedence).
+        RequestOverrides.current()?.gates?.get(name)?.let { return@runCatching FlagDetail(it, Reason.OVERRIDE) }
         // Single telemetry emit for every non-override path (steps 2–5).
         telemetry.emit("gate", name)
         // 2. No rules blob loaded yet.
@@ -344,6 +347,7 @@ class Engine(
     @Suppress("UNCHECKED_CAST")
     fun getConfig(name: String, default: Any? = null): Any? = runCatching {
         configOverrides[name]?.let { return@runCatching it.value }
+        RequestOverrides.current()?.configs?.let { if (it.containsKey(name)) return@runCatching it[name] }
         telemetry.emit("config", name)
         val configs = flagsBlob?.get("configs") as? Map<String, Any?> ?: return@runCatching default
         val entry = configs[name] as? Map<String, Any?> ?: return@runCatching default
@@ -369,6 +373,17 @@ class Engine(
             val defaults = Eval.paramDefaultsFromSchema(universe?.get("param_schema"))
             val ovParams = (ov.params as? Map<String, Any?>) ?: emptyMap()
             return ExpStanding.group(ov.group, Eval.mergeParams(defaults, ovParams))
+        }
+        // Signed DevTools cookie: force the group, with that variant's params from
+        // the blob when it exists (else the universe defaults), like the above.
+        RequestOverrides.current()?.exps?.get(name)?.let { group ->
+            val universeName = exp?.get("universe") as? String
+            val universe = (expsBlob?.get("universes") as? Map<String, Any?>)?.get(universeName) as? Map<String, Any?>
+            val defaults = Eval.paramDefaultsFromSchema(universe?.get("param_schema"))
+            val variant = (exp?.get("groups") as? List<Map<String, Any?>>)
+                ?.firstOrNull { (it["name"] as? String) == group }
+            val gp = (variant?.get("params") as? Map<String, Any?>) ?: emptyMap()
+            return ExpStanding.group(group, Eval.mergeParams(defaults, gp))
         }
         return Eval.classifyExperiment(exp, flagsBlob, expsBlob, user, name, stickyStore)
     }
@@ -448,6 +463,9 @@ class Engine(
      */
     @Suppress("UNCHECKED_CAST")
     fun getKillswitch(name: String, switchKey: String? = null): Boolean = runCatching {
+        // Signed DevTools cookie: gates{} covers kill switches too; whole-switch
+        // reads only (named sub-switches are left alone). Skips telemetry like an override.
+        if (switchKey == null) RequestOverrides.current()?.gates?.get(name)?.let { return@runCatching it }
         telemetry.emit("ks", name)
         val ks = (flagsBlob?.get("killswitches") as? Map<String, Any?>)?.get(name) as? Map<String, Any?>
             ?: return@runCatching false
@@ -797,6 +815,21 @@ class Engine(
     @Suppress("UNCHECKED_CAST")
     private fun applyExps(body: String) {
         expsBlob = fromJsonElement(json.parseToJsonElement(body)) as? Map<String, Any?>
+    }
+
+    /**
+     * Verify a raw `se_ov` cookie value against the project override key served
+     * with the flags (`overrideKey` / `overrideKeyId` at the top level of
+     * `/sdk/flags`). Null — overrides disabled, fail closed — when the platform
+     * served no key, or the cookie is invalid/expired. Internal: reached via
+     * [withRequestOverrides] / [AnonIdFilter].
+     */
+    internal fun verifyOverrideCookie(rawCookie: String): OverrideMap? {
+        val blob = flagsBlob ?: return null
+        val key = blob["overrideKey"] as? String ?: return null
+        val keyId = blob["overrideKeyId"] as? String ?: return null
+        if (key.isEmpty() || keyId.isEmpty()) return null
+        return OverrideCookie.verify(rawCookie, key, keyId)
     }
 
     /**

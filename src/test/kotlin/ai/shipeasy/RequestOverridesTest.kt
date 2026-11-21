@@ -1,0 +1,228 @@
+package ai.shipeasy
+
+import jakarta.servlet.FilterChain
+import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import java.lang.reflect.Proxy
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+// shipeasy ops #714: the signed DevTools override cookie (`se_ov`) reaches
+// server-side reads. Vectors are the cross-SDK fixture (se_ov_fixture.json).
+class RequestOverridesTest {
+    private val key = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"
+    private val keyId = "k1"
+    private val cookie = "eyJ2IjoxLCJwaWQiOiJwcm9qX2ZpeHR1cmUiLCJrZXlJZCI6ImsxIiwibm9uY2UiOiJmaXh0dXJlLW5vbmNlIiwiZXhwIjo0MTAyNDQ0ODAwLCJvdiI6eyJnYXRlcyI6eyJsb2JieV9ob2xkIjp0cnVlLCJvbGRfbmF2IjpmYWxzZX0sImNvbmZpZ3MiOnsiYmFubmVyIjp7InRleHQiOiJoaSJ9fSwiZXhwcyI6eyJjaGVja291dF9leHAiOiJ0cmVhdG1lbnQifX19.8qd-pHu1e96Th-jcu4BZOhLmZjwhKrgn-uI8IWBr5Og"
+    private val expired = "eyJ2IjoxLCJwaWQiOiJwcm9qX2ZpeHR1cmUiLCJrZXlJZCI6ImsxIiwibm9uY2UiOiJmaXh0dXJlLW5vbmNlIiwiZXhwIjoxMDAwLCJvdiI6eyJnYXRlcyI6eyJsb2JieV9ob2xkIjp0cnVlLCJvbGRfbmF2IjpmYWxzZX0sImNvbmZpZ3MiOnsiYmFubmVyIjp7InRleHQiOiJoaSJ9fSwiZXhwcyI6eyJjaGVja291dF9leHAiOiJ0cmVhdG1lbnQifX19.fZEp7eGjZSdi5EvTB-5NZLbZpVXbcWbIaEYRmPvPbd8"
+    private val tampered = "eyJ2IjoxLCJwaWQiOiJwcm9qX2ZpeHR1cmUiLCJrZXlJZCI6ImsxIiwibm9uY2UiOiJmaXh0dXJlLW5vbmNlIiwiZXhwIjo0MTAyNDQ0ODAwLCJvdiI6eyJnYXRlcyI6eyJsb2JieV9ob2xkIjp0cnVlLCJvbGRfbmF2IjpmYWxzZX0sImNvbmZpZ3MiOnsiYmFubmVyIjp7InRleHQiOiJoaSJ9fSwiZXhwcyI6eyJjaGVja291dF9leHAiOiJ0cmVhdG1lbnQifX19.8qd-pHu1e96Th-jcu4BZOhLmZjwhKrgn-uI8IWBr5AA"
+
+    @BeforeTest @AfterTest
+    fun reset() {
+        resetConfigureForTests()
+        setDefaultClient(null)
+        AnonId.clear()
+        SeeContext.clear()
+    }
+
+    private fun flagsBlob(withKey: Boolean = true): Map<String, Any?> {
+        val m = mutableMapOf<String, Any?>(
+            "gates" to mapOf(
+                "lobby_hold" to mapOf("enabled" to true, "rolloutPct" to 0),
+                "old_nav" to mapOf("enabled" to true, "rolloutPct" to 10000),
+                "plain" to mapOf("enabled" to true, "rolloutPct" to 10000),
+            ),
+            "configs" to mapOf("banner" to mapOf("value" to mapOf("text" to "orig"))),
+            "killswitches" to mapOf("lobby_hold" to mapOf("killed" to false)),
+        )
+        if (withKey) { m["overrideKey"] = key; m["overrideKeyId"] = keyId }
+        return m
+    }
+
+    private val exps: Map<String, Any?> = mapOf(
+        "universes" to mapOf("u1" to mapOf("param_schema" to mapOf("color" to mapOf("default" to "blue")))),
+        "experiments" to mapOf(
+            "checkout_exp" to mapOf(
+                "universe" to "u1", "status" to "running", "salt" to "s", "allocationPct" to 10000,
+                "groups" to listOf(
+                    mapOf("name" to "control", "weight" to 10000, "params" to mapOf<String, Any?>()),
+                    mapOf("name" to "treatment", "weight" to 0, "params" to mapOf("color" to "green")),
+                ),
+            ),
+        ),
+    )
+
+    private fun install(withKey: Boolean = true): Engine {
+        val e = Engine.fromSnapshot(flagsBlob(withKey), exps)
+        installEngineForTests(e)
+        return e
+    }
+
+    private val user = mapOf("user_id" to "u1")
+
+    // ── verifier ─────────────────────────────────────────────────────────────
+    @Test fun fixtureVerifies() {
+        val ov = OverrideCookie.verify(cookie, key, keyId)
+        assertNotNull(ov)
+        assertEquals(mapOf("lobby_hold" to true, "old_nav" to false), ov.gates)
+        assertEquals(mapOf("banner" to mapOf("text" to "hi")), ov.configs)
+        assertEquals(mapOf("checkout_exp" to "treatment"), ov.exps)
+    }
+
+    @Test fun rejectsExpiredTamperedWrongKeyIdWrongKeyAndMalformed() {
+        assertNull(OverrideCookie.verify(expired, key, keyId))
+        assertNull(OverrideCookie.verify(tampered, key, keyId))
+        assertNull(OverrideCookie.verify(cookie, key, "k2"))
+        assertNull(OverrideCookie.verify(cookie, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", keyId))
+        assertNull(OverrideCookie.verify(cookie, "!!not base64!!", keyId))
+        assertNull(OverrideCookie.verify("nodot", key, keyId))
+        assertNull(OverrideCookie.verify(".abc", key, keyId))
+        assertNull(OverrideCookie.verify("a.b.c", key, keyId))
+        assertNull(OverrideCookie.verify("", key, keyId))
+        // `exp` in the past relative to an injected clock.
+        assertNull(OverrideCookie.verify(cookie, key, keyId, nowSeconds = 4_102_444_800L))
+    }
+
+    @Test fun extractsFromBareValueAndCookieHeader() {
+        assertEquals(cookie, OverrideCookie.extract(cookie))
+        assertEquals(cookie, OverrideCookie.extract("a=1; se_ov=$cookie; b=2"))
+        assertEquals(cookie, OverrideCookie.extract("se_ov=" + cookie.replace(".", "%2E")))
+        assertNull(OverrideCookie.extract("a=1; b=2"))
+        assertNull(OverrideCookie.extract("nodots"))
+        assertNull(OverrideCookie.extract(null))
+        assertNull(OverrideCookie.extract(""))
+    }
+
+    // ── scope + read path ────────────────────────────────────────────────────
+    @Test fun overridesApplyInsideScopeAndNotOutside() {
+        install()
+        val flags = Client(user)
+        assertFalse(flags.getFlag("lobby_hold"))
+        assertTrue(flags.getFlag("old_nav"))
+        withRequestOverrides("a=1; se_ov=$cookie") {
+            val d = Client(user).getFlagDetail("lobby_hold")
+            assertTrue(d.value)
+            assertEquals(Reason.OVERRIDE, d.reason)
+            assertFalse(Client(user).getFlag("old_nav"))
+            assertTrue(Client(user).getFlag("plain"))          // untouched
+            assertTrue(Client(user).getKillswitch("lobby_hold")) // gates cover kill switches
+            assertEquals(mapOf("text" to "hi"), Client(user).getConfig("banner"))
+            assertEquals("treatment", Client(user).universe("u1").assign().group)
+            assertEquals("green", Client(user).universe("u1").assign().get("color", "x"))
+        }
+        assertNull(RequestOverrides.current())
+        assertFalse(flags.getFlag("lobby_hold"))
+        assertTrue(flags.getFlag("old_nav"))
+        assertFalse(Client(user).getKillswitch("lobby_hold"))
+        assertEquals(mapOf("text" to "orig"), Client(user).getConfig("banner"))
+        assertEquals("control", Client(user).universe("u1").assign().group)
+    }
+
+    @Test fun killswitchSubKeysAreLeftAlone() {
+        install()
+        withRequestOverrides(cookie) {
+            assertFalse(Client(user).getKillswitch("lobby_hold", "some_switch"))
+        }
+    }
+
+    @Test fun programmaticOverrideWinsOverCookie() {
+        val e = install()
+        e.overrideFlag("lobby_hold", false)
+        e.overrideConfig("banner", "prog")
+        e.overrideExperiment("checkout_exp", "control", null)
+        withRequestOverrides(cookie) {
+            assertFalse(Client(user).getFlag("lobby_hold"))
+            assertEquals("prog", Client(user).getConfig("banner"))
+            assertEquals("control", Client(user).universe("u1").assign().group)
+        }
+    }
+
+    @Test fun noKeyServedMeansFailClosed() {
+        install(withKey = false)
+        withRequestOverrides(cookie) {
+            assertFalse(Client(user).getFlag("lobby_hold"))
+            assertNull(RequestOverrides.current())
+        }
+    }
+
+    @Test fun badCookiesAreIgnoredInsideScope() {
+        install()
+        for (c in listOf(expired, tampered, "garbage", null)) {
+            withRequestOverrides(c) { assertFalse(Client(user).getFlag("lobby_hold")) }
+        }
+    }
+
+    @Test fun scopeClearsOnThrowAndNestsAndRestores() {
+        install()
+        runCatching { withRequestOverrides(cookie) { error("boom") } }
+        assertNull(RequestOverrides.current())
+        withRequestOverrides(cookie) {
+            withRequestOverrides(null) { assertFalse(Client(user).getFlag("lobby_hold")) }
+            assertTrue(Client(user).getFlag("lobby_hold"))
+        }
+    }
+
+    @Test fun suspendScopeSurvivesDispatcherHopsAndClears() = runBlocking {
+        install()
+        withRequestOverridesSuspend(cookie) {
+            assertTrue(Client(user).getFlag("lobby_hold"))
+            withContext(Dispatchers.IO) { assertTrue(Client(user).getFlag("lobby_hold")) }
+            withContext(Dispatchers.Default) { assertTrue(Client(user).getFlag("lobby_hold")) }
+        }
+        assertFalse(Client(user).getFlag("lobby_hold"))
+        withContext(Dispatchers.IO) { assertFalse(Client(user).getFlag("lobby_hold")) }
+    }
+
+    // ── servlet filter ───────────────────────────────────────────────────────
+    private fun request(cookieHeader: String?): HttpServletRequest =
+        Proxy.newProxyInstance(
+            HttpServletRequest::class.java.classLoader,
+            arrayOf(HttpServletRequest::class.java),
+        ) { _, m, args ->
+            when (m.name) {
+                "getHeader" -> if ((args!![0] as String).equals("Cookie", true)) cookieHeader else null
+                "isSecure" -> false
+                else -> null
+            }
+        } as HttpServletRequest
+
+    private fun response(): HttpServletResponse =
+        Proxy.newProxyInstance(
+            HttpServletResponse::class.java.classLoader,
+            arrayOf(HttpServletResponse::class.java),
+        ) { _, _, _ -> null } as HttpServletResponse
+
+    @Test fun filterScopesOverridesForTheRequestAndClears() {
+        install()
+        var inside: Boolean? = null
+        AnonIdFilter().doFilter(request("se_ov=$cookie"), response(), FilterChain { _, _ ->
+            inside = Client(user).getFlag("lobby_hold")
+        })
+        assertEquals(true, inside)
+        assertNull(RequestOverrides.current())
+        assertFalse(Client(user).getFlag("lobby_hold"))
+    }
+
+    @Test fun filterClearsWhenChainThrows() {
+        install()
+        runCatching {
+            AnonIdFilter().doFilter(request("se_ov=$cookie"), response(), FilterChain { _, _ -> error("x") })
+        }
+        assertNull(RequestOverrides.current())
+    }
+
+    @Test fun filterWithoutCookieChangesNothing() {
+        install()
+        var inside: Boolean? = null
+        AnonIdFilter().doFilter(request(null), response(), FilterChain { _, _ -> inside = Client(user).getFlag("lobby_hold") })
+        assertEquals(false, inside)
+    }
+}

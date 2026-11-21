@@ -201,6 +201,37 @@ end users at all:
 val head = if (user.isStaff) devtoolsScriptTag() else ""
 ```
 
+### Server-side DevTools overrides (`se_ov`)
+
+When a developer is signed in to the DevTools overlay, every override they set
+(including `?se_gate_x=true` in the URL) is mirrored into a signed `se_ov`
+cookie that rides along on every same-origin request. Once the request is scoped,
+**server-side reads honor it** — `getFlag` / `getFlagDetail` (reason
+`OVERRIDE`), `getKillswitch` (whole-switch reads; the gate namespace covers kill
+switches), `getConfig`, and `universe(name).assign()` (forces the group).
+
+- **Servlet stacks:** register `AnonIdFilter` (above) — it verifies the cookie
+  once per request and clears it afterwards. Nothing else to wire.
+- **Everything else:** wrap the request in `withRequestOverrides(cookieHeader) { ... }`.
+  A `suspend` variant, `withRequestOverridesSuspend`, keeps the scope with the coroutine
+  across `withContext(Dispatchers.IO)` hops.
+
+```kotlin
+import ai.shipeasy.withRequestOverrides
+
+withRequestOverrides(call.request.headers["Cookie"]) {
+    val flags = Client(currentUser)
+    flags.getFlag("new_checkout")   // overridden value if DevTools set one
+}
+```
+
+Precedence is `overrideFlag(...)` (programmatic) > signed cookie > normal
+evaluation. It is **fail-closed**: overrides apply only when Shipeasy served your
+project's override key with the flags, the cookie signature verifies, and it has
+not expired. Otherwise — or outside a scoped request — reads are unchanged. A
+bare unsigned `?se_gate_` URL parameter is client-only by design: without the
+signed cookie the server never trusts it.
+
 ### Identity coherence (no anon→identified flip)
 
 When you pass an **identified** `user`, the tag also carries that identity as a
