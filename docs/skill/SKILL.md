@@ -20,7 +20,7 @@ native client for shipped Android apps (public client key, server-side eval over
 
 ```kotlin
 // build.gradle.kts — Android companion artifact (thin adapter over the core jar):
-implementation("ai.shipeasy:shipeasy-kotlin-android:0.23.0")
+implementation("ai.shipeasy:shipeasy-kotlin-android:0.24.0")
 ```
 
 ```kotlin
@@ -48,7 +48,7 @@ The rest of this skill covers the **server** SDK (`configure()` + `Client`).
 ## Install
 
 ```kotlin
-implementation("ai.shipeasy:shipeasy-kotlin:0.23.0")
+implementation("ai.shipeasy:shipeasy-kotlin:0.24.0")
 ```
 
 ## Configure once, evaluate per user
@@ -161,7 +161,9 @@ coroutine). Fail-closed: needs the project override key served by Shipeasy, a
 valid unexpired signature; `overrideFlag` still wins; an unsigned `?se_gate_`
 param alone is client-only. For dev stacks only, `configure(devOverrides = true)`
 also honors the unsigned `se_ov_dev` URL-override cookie — ignored (one warning) in
-production, signed cookie wins on conflicts. Reference:
+production, signed cookie wins on conflicts. For an API on a sibling subdomain the
+browser sends the same cookies in an `X-Shipeasy-Overrides` header (`AnonIdFilter` reads
+it; or `withRequestOverrides(cookie, overridesHeader) { ... }`); `Cookie` wins per name. Reference:
 <https://shipeasy-ai.github.io/sdk-kotlin/snippets/devtools/server-overrides.md>
 
 ## Notes

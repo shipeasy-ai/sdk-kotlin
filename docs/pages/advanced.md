@@ -252,6 +252,29 @@ is programmatic > signed `se_ov` > `se_ov_dev` > evaluation, per name (the signe
 cookie wins on conflicts); the reason stays `OVERRIDE`. It is never active in
 production.
 
+### Frontend and API on different subdomains
+
+If the frontend is `app.example.com` and the API is `api.example.com`, a
+host-only cookie never reaches the API. The browser SDK scopes the override
+cookies to the registrable domain automatically (or to `overrideCookieDomain`
+when set), so the API usually sees them. For token-auth APIs that don't take
+cookies, send the `X-Shipeasy-Overrides` header — its value is cookie-header
+syntax (`se_ov=...; se_ov_dev=...`); the browser SDK's `getOverrideHeaders()`
+builds it. `AnonIdFilter` reads it automatically; otherwise pass it as the second
+argument:
+
+```kotlin
+withRequestOverrides(
+    call.request.headers["Cookie"],
+    call.request.headers["X-Shipeasy-Overrides"],
+) { Client(currentUser).getFlag("new_checkout") }
+```
+
+Per cookie name the `Cookie` header wins; the header fills in when the cookie is
+absent. The same verification applies: a signed value must verify, and
+`se_ov_dev` is never even parsed unless `devOverrides` is on in a non-production
+process. The API's CORS config must allow the `X-Shipeasy-Overrides` header.
+
 ### Identity coherence (no anon→identified flip)
 
 When you pass an **identified** `user`, the tag also carries that identity as a

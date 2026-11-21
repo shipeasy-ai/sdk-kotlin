@@ -33,3 +33,12 @@ withRequestOverrides(call.request.headers["Cookie"]) {
 // Non-production only. Ignored (with one warning) when the process is production.
 configure(apiKey = System.getenv("SHIPEASY_SERVER_KEY"), devOverrides = true)
 ```
+
+### API on a sibling subdomain
+
+```kotlin
+// Second argument: the X-Shipeasy-Overrides header (cookie-header syntax). Cookie wins per name.
+withRequestOverrides(call.request.headers["Cookie"], call.request.headers["X-Shipeasy-Overrides"]) {
+    Client(currentUser).getFlag("{{FLAG_KEY}}")
+}
+```
